@@ -76,10 +76,10 @@ export default function QueuePage() {
 
 function SummaryTile({ label, count, icon: Icon, tone }: any) {
   const styles: any = {
-      info:  { border: 'border-blue-700/40',    bg: 'bg-blue-500/10',   text: 'text-blue-500 font-medium' },
-      warn:  { border: 'border-amber-700/40',   bg: 'bg-amber-500/10',  text: 'text-amber-500 font-medium' },
-      ok:    { border: 'border-emerald-700/40', bg: 'bg-emerald-500/10', text: 'text-emerald-500 font-medium' },
-      alert: { border: 'border-red-700/40',     bg: 'bg-red-500/10',    text: 'text-red-500 font-medium' },
+      info:  { border: 'border-blue-800',    bg: 'bg-blue-500/10',   text: 'text-blue-800' },
+      warn:  { border: 'border-amber-800',   bg: 'bg-amber-500/10',  text: 'text-amber-800' },
+      ok:    { border: 'border-emerald-800', bg: 'bg-emerald-500/10', text: 'text-emerald-800' },
+      alert: { border: 'border-red-800',     bg: 'bg-red-500/10',    text: 'text-red-800' },
     };
   const s = styles[tone];
   
@@ -178,7 +178,7 @@ function BatchProgressCard({ batch }: { batch: any }) {
       {/* 위반/대기 사유 (해당 시) */}
       {isRejected && (
         <div className="mt-4 pt-4 border-t border-red-700/30">
-          <div className="text-[11px] text-red-300 flex items-start gap-2">
+          <div className="text-[11px] text-red-800 flex items-start gap-2">
             <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
             <div>
               <span className="font-semibold">UFLPA §3(a)(1) 위반 감지</span> · 
@@ -190,7 +190,7 @@ function BatchProgressCard({ batch }: { batch: any }) {
       )}
       {isWaiting && (
         <div className="mt-4 pt-4 border-t border-amber-700/30">
-          <div className="text-[11px] text-amber-300 flex items-start gap-2">
+          <div className="text-[11px] text-amber-800 flex items-start gap-2">
             <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
             <div>
               Compliance 에이전트 신뢰도 0.74 — 임계치 0.85 미만으로 HITL 검토 요청. 
