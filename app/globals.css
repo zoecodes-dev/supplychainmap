@@ -6,12 +6,12 @@
 @tailwind utilities;
 
 :root {
-  --grid-line: rgba(255, 255, 255, 0.04);
+  --grid-line: rgba(0, 0, 0, 0.04);
 }
 
 html, body {
-  background: #0F1419;
-  color: #DDE2E7;
+  background: #FAFAF7;
+  color: #1A1F26;
   font-feature-settings: "ss01", "ss02";
 }
 
@@ -55,6 +55,6 @@ body {
 
 /* 스크롤바 */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: #0F1419; }
-::-webkit-scrollbar-thumb { background: #3A4250; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: #5A6470; }
+::-webkit-scrollbar-track { background: #F7F9FB; }
+::-webkit-scrollbar-thumb { background: #DDE2E7; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #B8BEC4; }
