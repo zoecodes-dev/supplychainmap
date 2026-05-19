@@ -16,6 +16,10 @@
 // ============================================================
 
 import { suppliers as supplierList } from './data';
+// tierShortLabels는 lib/data.ts에서 단일 출처로 관리 (중복 제거)
+// 외부에서 이 파일을 통해 import하던 코드 호환을 위해 re-export
+export { tierShortLabels } from './data';
+export type { Tier as TierLevel } from './data';
 
 // ============================================================
 // 0. 규제 타입 (v2 — 11개 규제 전체)
@@ -977,8 +981,6 @@ export function getRemindLogs(supplierId: string): RemindLog[] {
 // ============================================================
 // 10. 부품 (5계층 트리) — 기존 유지
 // ============================================================
-export type TierLevel = 1 | 2 | 3 | 4 | 5;
-
 export interface Part {
   id: string;
   partCode: string;
@@ -1008,10 +1010,6 @@ export const parts: Part[] = [
 export function getPart(partId: string): Part | null {
   return parts.find(p => p.id === partId) ?? null;
 }
-
-export const tierShortLabels: Record<TierLevel, string> = {
-  1: 'Pack/Module', 2: 'Cell', 3: '활물질', 4: '전구체·정제', 5: '원광',
-};
 
 // ============================================================
 // 11. PO/송장 매핑 (기존 유지)

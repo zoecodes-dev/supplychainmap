@@ -4,7 +4,7 @@ import { useState } from 'react';
 import PageHeader from '@/components/PageHeader';
 import Card from '@/components/Card';
 import Badge from '@/components/Badge';
-import { auditTrail as sampleAuditTrail, AuditEntry } from '@/lib/data';
+import { sampleAuditTrail, type AuditEntry } from '@/lib/data';
 import { Search, Bot, Wrench, User, ChevronDown, ChevronRight, Hash, Clock } from 'lucide-react';
 import clsx from 'clsx';
 

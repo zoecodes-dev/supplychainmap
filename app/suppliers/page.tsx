@@ -9,9 +9,8 @@ import {
   supplierExtended,
 } from '@/lib/supplier-detail-data';
 import {
-  Search, Filter, ChevronRight, AlertTriangle, CheckCircle2,
-  Clock, AlertCircle, Building2, Phone, Mail, Globe,
-  ArrowUpRight, ShieldAlert, Users,
+  Search, ChevronRight, Mail, Phone,
+  ShieldAlert, Users,
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -50,79 +49,69 @@ const countryName: Record<string, string> = {
 
 // ─── 협력사 행 ───────────────────────────────────────────────
 function SupplierRow({ supplier }: { supplier: Supplier }) {
-  const name        = getSupplierName(supplier.id);
-  const contacts    = getContacts(supplier.id);
+  const name         = getSupplierName(supplier.id);
+  const contacts     = getContacts(supplier.id);
   const completeness = getCompleteness(supplier.id);
-  const risk        = getRiskProfile(supplier.id);
-  const ext         = supplierExtended.find(e => e.supplierId === supplier.id);
-  const primary     = contacts.find(c => c.isPrimary) ?? contacts[0];
-  const sm          = statusMeta[supplier.status];
-  const rm          = riskMeta[supplier.risk];
-  const fm          = risk ? feocMeta[risk.feocStatus] : feocMeta['unknown'];
+  const risk         = getRiskProfile(supplier.id);
+  const ext          = supplierExtended.find(e => e.supplierId === supplier.id);
+  const primary      = contacts.find(c => c.isPrimary) ?? contacts[0];
+  const sm           = statusMeta[supplier.status];
+  const rm           = riskMeta[supplier.risk];
+  const fm           = risk ? feocMeta[risk.feocStatus] : null;
 
   return (
-    <tr className="border-b border-ink-700/40 hover:bg-ink-800/30 transition-colors group">
-      {/* 협력사명 */}
-      <td className="px-5 py-3.5">
-        <div className="flex items-start gap-3">
-          <div className={clsx('w-2 h-2 rounded-full mt-1.5 shrink-0', sm.dot)} />
+    <tr className="border-b border-ink-700/40 hover:bg-ink-800/30 group transition-colors">
+      {/* 협력사 (영문 + 한글) */}
+      <td className="px-4 py-3.5">
+        <div className="flex items-start gap-2">
+          <span className={clsx('w-1.5 h-1.5 rounded-full mt-1.5 shrink-0', sm.dot)} />
           <div className="min-w-0">
-            <Link
-              href={`/suppliers/${supplier.id}`}
-              className="text-xs font-semibold text-ink-100 hover:text-accent-500 transition-colors group-hover:text-accent-400 block truncate"
-            >
+            <div className="text-xs font-semibold text-ink-100 truncate">
               {name?.nameEn ?? supplier.name}
-            </Link>
+            </div>
             {name?.nameKo && (
               <div className="text-[10px] text-ink-500 truncate">{name.nameKo}</div>
             )}
-            <div className="text-[10px] text-ink-500 num-mono mt-0.5">{supplier.id}</div>
+            <div className="text-[10px] num-mono text-ink-400">{supplier.id}</div>
           </div>
         </div>
       </td>
 
-      {/* Tier + 역할 */}
+      {/* Tier · 역할 */}
       <td className="px-4 py-3.5">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] num-mono font-bold text-accent-500 bg-accent-500/8 px-1.5 py-0.5 rounded-xs">
-            T{supplier.tier}
-          </span>
+        <div className="text-[11px] text-ink-300">{supplier.role}</div>
+        <div className="text-[10px] text-ink-500 mt-0.5">
+          T{supplier.tiers.join(', T')}
         </div>
-        <div className="text-[10px] text-ink-400 mt-1 leading-tight">{supplier.role}</div>
       </td>
 
       {/* 국가 */}
       <td className="px-4 py-3.5">
-        <div className="text-xs font-medium text-ink-200">{supplier.country}</div>
-        <div className="text-[10px] text-ink-500">{countryName[supplier.country] ?? ''}</div>
-        <div className="text-[10px] text-ink-500 truncate">{supplier.region}</div>
+        <div className="text-xs text-ink-200">{countryName[supplier.country] ?? supplier.country}</div>
+        <div className="text-[10px] text-ink-500">{supplier.region}</div>
       </td>
 
       {/* 상태 */}
       <td className="px-4 py-3.5">
-        <span className={clsx('text-[10px] font-medium px-1.5 py-0.5 rounded-xs border', sm.badge)}>
+        <span className={clsx('text-[10px] px-2 py-0.5 rounded-xs border font-medium', sm.badge)}>
           {sm.label}
         </span>
       </td>
 
-      {/* 위험도 + FEOC */}
+      {/* 위험도 · FEOC */}
       <td className="px-4 py-3.5">
-        <div className={clsx('text-[11px] font-semibold', rm.color)}>{rm.label}</div>
-        <div className={clsx('text-[10px] mt-0.5', fm.color)}>{fm.label}</div>
-        {risk?.isHighRiskFlag && (
-          <div className="flex items-center gap-1 mt-0.5 text-[10px] text-red-500">
-            <AlertTriangle className="w-3 h-3" />
-            고위험 플래그
-          </div>
+        <div className={clsx('text-[11px]', rm.color)}>{rm.label}</div>
+        {fm && (
+          <div className={clsx('text-[10px] mt-0.5', fm.color)}>{fm.label}</div>
         )}
       </td>
 
       {/* 완성도 */}
       <td className="px-4 py-3.5">
         <div className="flex items-center gap-2">
-          <div className="w-14 h-1.5 bg-ink-700 rounded-xs overflow-hidden">
+          <div className="w-16 h-1.5 rounded-full bg-ink-800 overflow-hidden">
             <div
-              className="h-full rounded-xs"
+              className="h-full transition-all"
               style={{
                 width: `${completeness?.completionRate ?? 0}%`,
                 backgroundColor: (completeness?.completionRate ?? 0) >= 90 ? '#10B981' :
@@ -206,7 +195,7 @@ export default function SuppliersPage() {
   // KPI
   const highRiskCount = suppliers.filter(s => {
     const r = getRiskProfile(s.id);
-    return r?.isHighRiskFlag;
+    return r?.riskLevel === 'high' || r?.riskLevel === 'critical';
   }).length;
 
   return (
@@ -253,7 +242,7 @@ export default function SuppliersPage() {
             { v: 'review',    label: '추가 확인' },
             { v: 'violation', label: '규제 위반' },
           ]} />
-          <Select value={tierFilter} onChange={v => setTierFilter(v === 'all' ? 'all' : Number(v) as Tier)} options={[
+          <Select value={String(tierFilter)} onChange={v => setTierFilter(v === 'all' ? 'all' : Number(v) as Tier)} options={[
             { v: 'all', label: 'Tier: 전체' },
             { v: '1',   label: 'T1 Pack/Module' },
             { v: '3',   label: 'T3 활물질' },
@@ -323,7 +312,7 @@ export default function SuppliersPage() {
 }
 
 function Select({ value, onChange, options }: {
-  value: string | number;
+  value: string;
   onChange: (v: string) => void;
   options: { v: string; label: string }[];
 }) {

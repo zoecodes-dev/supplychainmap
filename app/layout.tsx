@@ -50,22 +50,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 </div>
                 <div className="space-y-0.5 mt-1">
                   <NavLink
-                    href="/supply-chain/product-map"
+                    href="/supply-chain"
                     iconName="network"
-                    label="제품별 공급망 맵"
-                    subtitle="제품 → 협력사 추적"
-                  />
-                  <NavLink
-                    href="/supply-chain/request-map"
-                    iconName="send"
-                    label="입력 요청 맵"
-                    subtitle="데이터 제출 현황"
-                  />
-                  <NavLink
-                    href="/products"
-                    iconName="box"
-                    label="제품 관리"
-                    subtitle="인스턴스 · DPP 연동"
+                    label="공급망"
+                    subtitle="제품 추적 · 입력 요청"
                   />
                 </div>
               </div>
