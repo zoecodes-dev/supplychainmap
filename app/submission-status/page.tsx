@@ -97,8 +97,8 @@ function SupplierSubmissionRow({
     >
       {/* 협력사 */}
       <td className="px-4 py-3.5 min-w-[200px]">
-        <div className="text-xs font-semibold text-ink-100 truncate">{name.en}</div>
-        {name.ko && <div className="text-[10px] text-ink-500">{name.ko}</div>}
+        <div className="text-xs font-semibold text-ink-100 truncate">{name?.nameEn ?? ''}</div>
+        {name?.nameKo && <div className="text-[10px] text-ink-500">{name.nameKo}</div>}
         <div className="text-[10px] text-ink-500">{supplier.role}</div>
       </td>
 
@@ -217,8 +217,8 @@ function DetailPanel({ supplierId, onClose }: { supplierId: string; onClose: () 
       {/* 패널 헤더 */}
       <div className="flex items-start justify-between p-5 border-b border-ink-700/60">
         <div>
-          <div className="text-sm font-semibold text-ink-100">{name.en}</div>
-          {name.ko && <div className="text-[11px] text-ink-400 mt-0.5">{name.ko}</div>}
+          <div className="text-sm font-semibold text-ink-100">{name?.nameEn ?? ''}</div>
+          {name?.nameKo && <div className="text-[11px] text-ink-400 mt-0.5">{name.nameKo}</div>}
           <div className={clsx(
             'inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-xs border text-[10px] font-semibold',
             st.bg, st.border, st.color,
@@ -327,14 +327,14 @@ function DetailPanel({ supplierId, onClose }: { supplierId: string; onClose: () 
       {/* 액션 버튼 */}
       <div className="p-4 border-t border-ink-700/60 space-y-2">
         <button
-          onClick={() => showToast(`${name.en}에 데이터 요청 발송 완료`)}
+          onClick={() => showToast(`${name?.nameEn ?? ''}에 데이터 요청 발송 완료`)}
           className="w-full flex items-center justify-center gap-2 py-2 rounded-xs bg-accent-700 hover:bg-accent-600 text-white text-xs font-semibold transition-colors"
         >
           <Send className="w-3.5 h-3.5" />
           데이터 요청 발송
         </button>
         <button
-          onClick={() => showToast(`${name.en}에 리마인드 발송 완료`)}
+          onClick={() => showToast(`${name?.nameEn ?? ''}에 리마인드 발송 완료`)}
           className="w-full flex items-center justify-center gap-2 py-2 rounded-xs border border-ink-600 hover:border-ink-500 text-ink-200 text-xs font-medium transition-colors"
         >
           <Bell className="w-3.5 h-3.5" />
@@ -376,7 +376,7 @@ export default function SubmissionStatusPage() {
       const q = search.toLowerCase();
       list = list.filter(c => {
         const name = getSupplierName(c.supplierId);
-        return name.en.toLowerCase().includes(q) || (name.ko || '').includes(q);
+        return (name?.nameEn ?? '').toLowerCase().includes(q) || (name?.nameKo || '').includes(q);
       });
     }
     return [...list].sort((a, b) => a.completionRate - b.completionRate);
