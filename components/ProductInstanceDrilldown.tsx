@@ -8,7 +8,7 @@ import {
 } from '@/lib/supplier-detail-data';
 import {
   X, Package, Factory, Calendar, ChevronRight, ChevronDown,
-  Truck, ArrowRight, Layers, Box, Microchip, Atom, Pickaxe,
+  Truck, ArrowRight, Layers, Box, Cpu, Atom, Pickaxe,
   ExternalLink, MapPin, Hash, AlertCircle
 } from 'lucide-react';
 import Badge from './Badge';
@@ -24,7 +24,7 @@ interface Props {
 const tierIcons: Record<number, any> = {
   1: Box,
   2: Layers,
-  3: Microchip,
+  3: Cpu,
   4: Atom,
   5: Pickaxe,
 };

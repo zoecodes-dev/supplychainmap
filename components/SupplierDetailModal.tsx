@@ -526,7 +526,8 @@ function PoTable({ pos, direction }: { pos: any[]; direction: 'incoming' | 'outg
             return (
               <tr key={po.poId} className="border-b border-ink-700/40 hover:bg-ink-800/40">
                 <td className="px-2 py-2">
-                  <div className="num-mono text-accent-400 text-[11px]">{po.poNumber}</div>
+                  <div className="num-mono text-accent-400 text-[11px]">{po.originalPoNumber}</div>
+                  <div className="text-[10px] text-ink-500 num-mono">송장 {po.supplierInvoiceNumber}</div>
                   <div className="text-[10px] text-ink-500 num-mono">{po.deliveryDate}</div>
                 </td>
                 <td className="px-2 py-2">
