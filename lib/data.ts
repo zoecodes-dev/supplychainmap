@@ -3,6 +3,8 @@
 
 export type Tier = 1 | 2 | 3 | 4 | 5;
 
+export type SupplierStatus = 'verified' | 'pending' | 'review' | 'violation';
+
 export interface Supplier {
   id: string;
   name: string;          // 기존 필드 — 표시명 (영문 약칭)
