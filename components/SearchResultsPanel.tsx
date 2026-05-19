@@ -1,29 +1,32 @@
 'use client';
 
-import { Supplier, suppliers, tierShortLabels } from '@/lib/data';
+import { Supplier, suppliers, tierShortLabels, productInstances } from '@/lib/data';
 import {
-  supplierExtended, supplierContacts, parts, purchaseOrders,
+  supplierExtended, supplierContacts, parts, purchaseOrders, factories,
   type PurchaseOrder, type Part, type SupplierContact, type SupplierExtended
 } from '@/lib/supplier-detail-data';
 import {
-  Building2, Truck, Package, Mail, MapPin, Search, ArrowRight
+  Building2, Truck, Package, Mail, MapPin, Search, ArrowRight, Box
 } from 'lucide-react';
 import clsx from 'clsx';
 
 // 검색 결과 카테고리
 export type SearchResultKind =
-  | 'supplier'   // 협력사
-  | 'po'         // PO/송장
-  | 'part'       // 부품 (HS코드 매칭 포함)
-  | 'contact'    // 담당자
-  | 'country';   // 원산지국
+  | 'supplier'         // 협력사
+  | 'po'               // PO/송장
+  | 'part'             // 부품 (HS코드 매칭 포함)
+  | 'contact'          // 담당자
+  | 'country'          // 원산지국
+  | 'product_instance';// 제품 인스턴스 (시리얼 번호)
 
 export interface SearchResult {
   kind: SearchResultKind;
-  // 클릭 시 어느 협력사 모달을 열지
+  // 협력사 검색 결과인 경우 (kind !== 'product_instance')
   supplierId: string;
   // 모달의 어느 탭으로 점프할지
   targetTab: 'completeness' | 'parts' | 'cert' | 'factory' | 'relation' | 'company';
+  // 제품 인스턴스 검색 결과인 경우 시리얼 번호 (드릴다운 모달 열기 위함)
+  serialNumber?: string;
   // 표시 정보
   title: string;
   subtitle: string;
@@ -74,7 +77,7 @@ function searchAll(query: string, visibleSupplierIds: Set<string>): SearchResult
     const supplier = suppliers.find(s => s.id === po.supplierId);
     if (!supplier || !visibleSupplierIds.has(po.supplierId)) return;
     const hayStr = [
-      po.poNumber, po.supplierPartCode, po.originalPartCode,
+      po.originalPoNumber, po.supplierInvoiceNumber, po.supplierPartCode, po.originalPartCode,
     ].join(' ');
     if (matches(hayStr, q)) {
       const part = parts.find(p => p.id === po.partId);
@@ -82,8 +85,8 @@ function searchAll(query: string, visibleSupplierIds: Set<string>): SearchResult
         kind: 'po',
         supplierId: po.supplierId,
         targetTab: 'parts',
-        title: po.poNumber,
-        subtitle: `${supplier.name} → ${po.receiverSupplierId}`,
+        title: po.originalPoNumber,
+        subtitle: `${supplier.name} → ${po.receiverSupplierId} · 협력사 송장 ${po.supplierInvoiceNumber}`,
         hint: `${part?.partName ?? po.originalPartCode} · ${po.quantity.toLocaleString()}${po.unit}`,
       });
     }
@@ -139,7 +142,6 @@ function searchAll(query: string, visibleSupplierIds: Set<string>): SearchResult
   countryMatches.forEach(country => {
     const countrySuppliers = suppliers.filter(s => s.country === country && visibleSupplierIds.has(s.id));
     if (countrySuppliers.length > 0) {
-      // 국가 매칭은 첫 번째 협력사로 점프
       results.push({
         kind: 'country',
         supplierId: countrySuppliers[0].id,
@@ -151,16 +153,43 @@ function searchAll(query: string, visibleSupplierIds: Set<string>): SearchResult
     }
   });
 
+  // 6. 제품 인스턴스 매칭 (시리얼 번호 / 모델명 / 제품ID / 공장ID)
+  productInstances.forEach(inst => {
+    const hayStr = [
+      inst.serialNumber, inst.productId, inst.modelName,
+      inst.producedAtFactoryId, inst.dppId || '',
+    ].join(' ');
+    if (matches(hayStr, q)) {
+      const factory = factories.find(f => f.factoryId === inst.producedAtFactoryId);
+      const statusLabel = {
+        issued:      'DPP 발행 완료',
+        in_progress: 'DPP 발행 중',
+        pending:     'DPP 발행 대기',
+        not_started: '검증 미시작',
+      }[inst.dppStatus];
+      results.push({
+        kind: 'product_instance',
+        supplierId: '',  // 사용 안 함
+        targetTab: 'completeness',  // 사용 안 함
+        serialNumber: inst.serialNumber,
+        title: inst.serialNumber,
+        subtitle: `${inst.modelName} · ${statusLabel}`,
+        hint: `${factory?.factoryName ?? inst.producedAtFactoryId} · 생산 ${inst.producedAt}`,
+      });
+    }
+  });
+
   return results;
 }
 
 // 카테고리별 메타 (아이콘·라벨·우선순위)
 const categoryMeta: Record<SearchResultKind, { icon: any; label: string; order: number }> = {
-  supplier: { icon: Building2, label: '협력사',     order: 1 },
-  po:       { icon: Truck,     label: 'PO·송장',    order: 2 },
-  part:     { icon: Package,   label: '부품·HS코드', order: 3 },
-  contact:  { icon: Mail,      label: '담당자',      order: 4 },
-  country:  { icon: MapPin,    label: '원산지국',    order: 5 },
+  product_instance: { icon: Box,       label: '제품 인스턴스 (시리얼)', order: 1 },
+  supplier:         { icon: Building2, label: '협력사',                 order: 2 },
+  po:               { icon: Truck,     label: 'PO·송장',                order: 3 },
+  part:             { icon: Package,   label: '부품·HS코드',            order: 4 },
+  contact:          { icon: Mail,      label: '담당자',                 order: 5 },
+  country:          { icon: MapPin,    label: '원산지국',               order: 6 },
 };
 
 export default function SearchResultsPanel({ query, onSelect, visibleSupplierIds }: Props) {

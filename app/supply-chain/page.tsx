@@ -7,23 +7,24 @@ import Badge from '@/components/Badge';
 import SupplyChainMap from '@/components/SupplyChainMap';
 import SupplierDetailModal from '@/components/SupplierDetailModal';
 import SearchResultsPanel, { type SearchResult } from '@/components/SearchResultsPanel';
-import { suppliers, supplyEdges, Supplier, Tier } from '@/lib/data';
+import ProductInstanceDrilldown from '@/components/ProductInstanceDrilldown';
+import { suppliers, supplyEdges, Supplier, Tier, productInstances, ProductInstance } from '@/lib/data';
 import {
   getSupplierExtended, getIncomingPOs, getOutgoingPOs, getCompleteness,
 } from '@/lib/supplier-detail-data';
 import {
-  Search, Filter, ChevronDown, X,
+  Search, Filter, ChevronDown, X, Box,
   CheckCircle2, AlertCircle, AlertTriangle, Clock
 } from 'lucide-react';
 import clsx from 'clsx';
 
 type StatusFilter = 'all' | 'verified' | 'pending' | 'review' | 'violation';
 type TierFilter = 'all' | Tier;
-// 상하위 관계 탭은 협력사 포털로 이동 → relation 제거
 type ModalTab = 'completeness' | 'parts' | 'cert' | 'factory' | 'company';
 
 export default function SupplyChainPage() {
   const [openSupplier, setOpenSupplier] = useState<Supplier | null>(null);
+  const [openInstance, setOpenInstance] = useState<ProductInstance | null>(null);
   const [initialTab, setInitialTab] = useState<ModalTab | undefined>(undefined);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -52,7 +53,7 @@ export default function SupplyChainPage() {
         ].join(' ').toLowerCase();
         const ext = getSupplierExtended(s.id);
         const allPos = [...getIncomingPOs(s.id), ...getOutgoingPOs(s.id)];
-        const poHay = allPos.map(po => `${po.poNumber} ${po.supplierPartCode} ${po.originalPartCode}`).join(' ').toLowerCase();
+        const poHay = allPos.map(po => `${po.originalPoNumber} ${po.supplierInvoiceNumber} ${po.supplierPartCode} ${po.originalPartCode}`).join(' ').toLowerCase();
         if (!haystack.includes(q) && !poHay.includes(q) && !(ext?.ceoName.toLowerCase().includes(q))) {
           return false;
         }
@@ -79,9 +80,17 @@ export default function SupplyChainPage() {
     statusFilter !== 'all' || tierFilter !== 'all' || countryFilter !== 'all' || searchQuery !== '';
 
   const handleSearchResultSelect = (result: SearchResult) => {
+    // 제품 인스턴스 검색 결과 → 드릴다운 모달 열기
+    if (result.kind === 'product_instance' && result.serialNumber) {
+      const instance = productInstances.find(p => p.serialNumber === result.serialNumber);
+      if (instance) {
+        setOpenInstance(instance);
+      }
+      return;
+    }
+    // 협력사 관련 검색 결과 → 협력사 모달 열기
     const supplier = suppliers.find(s => s.id === result.supplierId);
     if (!supplier) return;
-    // 상하위 관계는 더이상 모달 탭이 아니므로 'relation'은 'company'로 폴백
     const targetTab = result.targetTab === 'relation' as any ? 'company' : result.targetTab;
     setInitialTab(targetTab as ModalTab);
     setOpenSupplier(supplier);
@@ -90,6 +99,15 @@ export default function SupplyChainPage() {
   const handleSupplierOpen = (s: Supplier, tab: ModalTab = 'completeness') => {
     setInitialTab(tab);
     setOpenSupplier(s);
+  };
+
+  // 드릴다운 모달의 협력사 점프 핸들러: 드릴다운 닫고 협력사 모달 열기
+  const handleOpenSupplierFromDrilldown = (supplierId: string) => {
+    const supplier = suppliers.find(s => s.id === supplierId);
+    if (!supplier) return;
+    setOpenInstance(null);
+    setInitialTab('parts');  // 공급 부품 탭에서 시작
+    setOpenSupplier(supplier);
   };
 
   return (
@@ -109,6 +127,27 @@ export default function SupplyChainPage() {
           <StatTile label="규제 위반" count={violationCount} total={suppliers.length} tone="alert" />
         </div>
 
+        {/* === 최근 생산 제품 (드릴다운 진입점) === */}
+        <Card
+          title="최근 생산 제품"
+          subtitle="시리얼을 클릭하면 BOM 트리·협력사 매칭이 펼쳐집니다"
+          action={
+            <span className="text-[11px] text-ink-400 num-mono">
+              총 {productInstances.length}건
+            </span>
+          }
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
+            {productInstances.slice(0, 8).map(inst => (
+              <ProductInstanceCard
+                key={inst.serialNumber}
+                instance={inst}
+                onClick={() => setOpenInstance(inst)}
+              />
+            ))}
+          </div>
+        </Card>
+
         {/* === 검색 & 필터 + 인라인 결과 패널 === */}
         <Card>
           <div className="flex flex-col lg:flex-row lg:items-center gap-3">
@@ -118,7 +157,7 @@ export default function SupplyChainPage() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="협력사명·PO번호·부품코드·HS코드·담당자·국가 코드 검색..."
+                placeholder="시리얼번호·협력사명·PO번호·부품코드·HS코드·담당자·국가 검색..."
                 className="w-full pl-9 pr-9 py-2 rounded-xs bg-ink-900 border border-ink-700 text-sm text-ink-100 placeholder:text-ink-500 focus:border-accent-500 outline-none"
               />
               {searchQuery && (
@@ -289,6 +328,13 @@ export default function SupplyChainPage() {
         onSelectSupplier={(s) => handleSupplierOpen(s)}
         initialTab={initialTab}
       />
+
+      {/* === 제품 인스턴스 드릴다운 모달 (시리얼 → BOM → 협력사) === */}
+      <ProductInstanceDrilldown
+        instance={openInstance}
+        onClose={() => setOpenInstance(null)}
+        onOpenSupplier={handleOpenSupplierFromDrilldown}
+      />
     </>
   );
 }
@@ -335,6 +381,38 @@ function FilterChip({ label, value, options, onChange }: any) {
         </>
       )}
     </div>
+  );
+}
+
+// === 제품 인스턴스 카드 (드릴다운 진입점) ===
+function ProductInstanceCard({ instance, onClick }: { instance: ProductInstance; onClick: () => void }) {
+  const statusMap: Record<string, { tone: any; label: string }> = {
+    issued:      { tone: 'ok',      label: 'DPP 발행' },
+    in_progress: { tone: 'info',    label: '발행 중' },
+    pending:     { tone: 'warn',    label: '대기' },
+    not_started: { tone: 'neutral', label: '미시작' },
+  };
+  const status = statusMap[instance.dppStatus];
+
+  return (
+    <button
+      onClick={onClick}
+      className="text-left rounded-xs border border-ink-700/60 bg-ink-900/40 hover:bg-ink-800/60 hover:border-accent-700/40 p-3 transition-colors group"
+    >
+      <div className="flex items-start justify-between gap-2 mb-1.5">
+        <Box className="w-3.5 h-3.5 text-accent-500 shrink-0" strokeWidth={1.8} />
+        <Badge tone={status.tone} size="sm">{status.label}</Badge>
+      </div>
+      <div className="text-xs font-medium text-ink-100 group-hover:text-accent-400 truncate mb-0.5">
+        {instance.modelName}
+      </div>
+      <div className="text-[10px] text-ink-500 num-mono truncate mb-1">
+        {instance.serialNumber}
+      </div>
+      <div className="text-[10px] text-ink-400 num-mono">
+        {instance.destination} · {instance.producedAt.slice(0, 10)}
+      </div>
+    </button>
   );
 }
 

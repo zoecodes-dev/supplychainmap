@@ -258,18 +258,27 @@ export const parts: Part[] = [
 // 6. PO/송장 단위 공급 매핑 (정의서 핵심)
 // schema의 purchase_orders + supply_chain_map.po_number 매핑
 // ============================================================
+// ============================================================
+// 6. PO/송장 단위 공급 매핑 (정의서 핵심)
+// 기준: 원청(우리)이 BOM 기반으로 PO 발행 → 협력사가 자기 송장 번호로 응답
+//   - originalPoNumber: 원청이 발행한 PO 번호 (BOM에서 생성, 우리 기준)
+//   - supplierInvoiceNumber: 협력사가 응답한 송장 번호 (협력사 기준)
+//   - originalPartCode: 원청 부품 코드 (BOM 기반)
+//   - supplierPartCode: 협력사가 자기들 시스템에서 쓰는 부품 코드
+// ============================================================
 export interface PurchaseOrder {
   poId: string;
-  poNumber: string;            // 송장 번호
-  supplierId: string;          // 납품 협력사
-  receiverSupplierId: string;  // 받는 쪽 (원청 또는 상위 협력사)
-  partId: string;              // 납품 부품 (원청 기준 코드)
-  supplierPartCode: string;    // 협력사 기준 코드
-  originalPartCode: string;    // 원청 기준 코드 (매핑)
-  factoryId: string;           // 어느 공장에서 출하했는지
+  originalPoNumber: string;       // 원청 PO 번호 (우리 기준, BOM 발주)
+  supplierInvoiceNumber: string;  // 협력사 송장 번호 (협력사 기준 응답)
+  supplierId: string;             // 납품 협력사
+  receiverSupplierId: string;     // 받는 쪽 (원청 또는 상위 협력사)
+  partId: string;
+  supplierPartCode: string;       // 협력사 기준 부품 코드
+  originalPartCode: string;       // 원청 기준 부품 코드 (BOM 기반)
+  factoryId: string;
   quantity: number;
   unit: string;
-  supplyRatio: number;         // 같은 부품 전체 중 이 공장 비율 %
+  supplyRatio: number;
   unitPrice: number;
   originCountry: string;
   orderDate: string;
@@ -279,34 +288,35 @@ export interface PurchaseOrder {
 
 export const purchaseOrders: PurchaseOrder[] = [
   // POS Cathode → Hanyang Cell (양극재, 분할 납품 65% : 35%)
-  { poId: 'PO-001', poNumber: 'PO-2026-04891', supplierId: 'S-CAM-001', receiverSupplierId: 'S-CELL-001', partId: 'PRT-005', supplierPartCode: 'POS-CAM-NCM-811-A', originalPartCode: 'CAM-NCM811', factoryId: 'F-005', quantity: 12500, unit: 'kg', supplyRatio: 65, unitPrice: 28.40, originCountry: 'KR', orderDate: '2026-04-15', deliveryDate: '2026-05-10', status: 'delivered' },
-  { poId: 'PO-002', poNumber: 'PO-2026-04902', supplierId: 'S-CAM-001', receiverSupplierId: 'S-CELL-001', partId: 'PRT-005', supplierPartCode: 'POS-CAM-NCM-811-A', originalPartCode: 'CAM-NCM811', factoryId: 'F-006', quantity:  6800, unit: 'kg', supplyRatio: 35, unitPrice: 28.40, originCountry: 'KR', orderDate: '2026-04-15', deliveryDate: '2026-05-12', status: 'verified'  },
+  // 원청 PO 1건이 협력사 송장 2건으로 응답될 수도, 1:1일 수도 있음
+  { poId: 'PO-001', originalPoNumber: 'PO-HC-2026-04891', supplierInvoiceNumber: 'INV-POS-26041501', supplierId: 'S-CAM-001', receiverSupplierId: 'S-CELL-001', partId: 'PRT-005', supplierPartCode: 'POS-CAM-NCM-811-A', originalPartCode: 'CAM-NCM811', factoryId: 'F-005', quantity: 12500, unit: 'kg', supplyRatio: 65, unitPrice: 28.40, originCountry: 'KR', orderDate: '2026-04-15', deliveryDate: '2026-05-10', status: 'delivered' },
+  { poId: 'PO-002', originalPoNumber: 'PO-HC-2026-04891', supplierInvoiceNumber: 'INV-POS-26041502', supplierId: 'S-CAM-001', receiverSupplierId: 'S-CELL-001', partId: 'PRT-005', supplierPartCode: 'POS-CAM-NCM-811-A', originalPartCode: 'CAM-NCM811', factoryId: 'F-006', quantity:  6800, unit: 'kg', supplyRatio: 35, unitPrice: 28.40, originCountry: 'KR', orderDate: '2026-04-15', deliveryDate: '2026-05-12', status: 'verified'  },
 
-  // Yantai Cathode → Hanyang Cell (NCA)
-  { poId: 'PO-003', poNumber: 'PO-2026-05011', supplierId: 'S-CAM-002', receiverSupplierId: 'S-CELL-001', partId: 'PRT-005', supplierPartCode: 'YT-NCA-A1',         originalPartCode: 'CAM-NCM811', factoryId: 'F-008', quantity:  8200, unit: 'kg', supplyRatio: 100, unitPrice: 27.10, originCountry: 'CN', orderDate: '2026-05-02', deliveryDate: '2026-05-22', status: 'in_transit' },
+  // Yantai → Hanyang Cell
+  { poId: 'PO-003', originalPoNumber: 'PO-HC-2026-05011', supplierInvoiceNumber: 'INV-YT-26050201', supplierId: 'S-CAM-002', receiverSupplierId: 'S-CELL-001', partId: 'PRT-005', supplierPartCode: 'YT-NCA-A1',         originalPartCode: 'CAM-NCM811', factoryId: 'F-008', quantity:  8200, unit: 'kg', supplyRatio: 100, unitPrice: 27.10, originCountry: 'CN', orderDate: '2026-05-02', deliveryDate: '2026-05-22', status: 'in_transit' },
 
-  // Mitsui → Hanyang Cell (음극재)
-  { poId: 'PO-004', poNumber: 'PO-2026-04875', supplierId: 'S-ANO-001', receiverSupplierId: 'S-CELL-001', partId: 'PRT-006', supplierPartCode: 'MIT-ANODE-NG-K2',   originalPartCode: 'ANO-GRAPHITE', factoryId: 'F-010', quantity:  9400, unit: 'kg', supplyRatio: 100, unitPrice:  8.20, originCountry: 'JP', orderDate: '2026-04-10', deliveryDate: '2026-05-05', status: 'verified' },
+  // Mitsui → Hanyang Cell
+  { poId: 'PO-004', originalPoNumber: 'PO-HC-2026-04875', supplierInvoiceNumber: 'INV-MIT-26041001', supplierId: 'S-ANO-001', receiverSupplierId: 'S-CELL-001', partId: 'PRT-006', supplierPartCode: 'MIT-ANODE-NG-K2',   originalPartCode: 'ANO-GRAPHITE', factoryId: 'F-010', quantity:  9400, unit: 'kg', supplyRatio: 100, unitPrice:  8.20, originCountry: 'JP', orderDate: '2026-04-10', deliveryDate: '2026-05-05', status: 'verified' },
 
-  // QZ Precursor → POS Cathode (전구체)
-  { poId: 'PO-005', poNumber: 'PO-2026-04701', supplierId: 'S-PRE-001', receiverSupplierId: 'S-CAM-001',  partId: 'PRT-007', supplierPartCode: 'QZ-PRE-NCM-OH',     originalPartCode: 'PRE-NCM',      factoryId: 'F-012', quantity: 18500, unit: 'kg', supplyRatio: 100, unitPrice: 14.80, originCountry: 'CN', orderDate: '2026-04-01', deliveryDate: '2026-04-28', status: 'delivered' },
+  // QZ Precursor → POS Cathode
+  { poId: 'PO-005', originalPoNumber: 'PO-POS-2026-04701', supplierInvoiceNumber: 'INV-QZ-26040101', supplierId: 'S-PRE-001', receiverSupplierId: 'S-CAM-001',  partId: 'PRT-007', supplierPartCode: 'QZ-PRE-NCM-OH',     originalPartCode: 'PRE-NCM',      factoryId: 'F-012', quantity: 18500, unit: 'kg', supplyRatio: 100, unitPrice: 14.80, originCountry: 'CN', orderDate: '2026-04-01', deliveryDate: '2026-04-28', status: 'delivered' },
 
-  // Nori → QZ + Yantai (니켈 분할)
-  { poId: 'PO-006', poNumber: 'PO-2026-03812', supplierId: 'S-MINE-001', receiverSupplierId: 'S-PRE-001', partId: 'PRT-008', supplierPartCode: 'NORI-NCL-RAW',     originalPartCode: 'MIN-NI',       factoryId: 'F-016', quantity: 21000, unit: 'kg', supplyRatio: 77, unitPrice: 18.50, originCountry: 'PH', orderDate: '2026-03-15', deliveryDate: '2026-04-18', status: 'delivered' },
-  { poId: 'PO-007', poNumber: 'PO-2026-03844', supplierId: 'S-MINE-001', receiverSupplierId: 'S-REF-002', partId: 'PRT-008', supplierPartCode: 'NORI-NCL-RAW',     originalPartCode: 'MIN-NI',       factoryId: 'F-016', quantity:  6200, unit: 'kg', supplyRatio: 23, unitPrice: 18.50, originCountry: 'PH', orderDate: '2026-03-15', deliveryDate: '2026-04-20', status: 'delivered' },
+  // Nori → QZ + Ganzhou (니켈 분할)
+  { poId: 'PO-006', originalPoNumber: 'PO-QZ-2026-03812', supplierInvoiceNumber: 'INV-NORI-26031501', supplierId: 'S-MINE-001', receiverSupplierId: 'S-PRE-001', partId: 'PRT-008', supplierPartCode: 'NORI-NCL-RAW',     originalPartCode: 'MIN-NI',       factoryId: 'F-016', quantity: 21000, unit: 'kg', supplyRatio: 77, unitPrice: 18.50, originCountry: 'PH', orderDate: '2026-03-15', deliveryDate: '2026-04-18', status: 'delivered' },
+  { poId: 'PO-007', originalPoNumber: 'PO-GZ-2026-03844', supplierInvoiceNumber: 'INV-NORI-26031502', supplierId: 'S-MINE-001', receiverSupplierId: 'S-REF-002', partId: 'PRT-008', supplierPartCode: 'NORI-NCL-RAW',     originalPartCode: 'MIN-NI',       factoryId: 'F-016', quantity:  6200, unit: 'kg', supplyRatio: 23, unitPrice: 18.50, originCountry: 'PH', orderDate: '2026-03-15', deliveryDate: '2026-04-20', status: 'delivered' },
 
   // Kat Cobalt → Ganzhou + QZ (코발트 분할)
-  { poId: 'PO-008', poNumber: 'PO-2026-03908', supplierId: 'S-MINE-002', receiverSupplierId: 'S-REF-002', partId: 'PRT-009', supplierPartCode: 'KAT-CO-ORE',        originalPartCode: 'MIN-CO',       factoryId: 'F-017', quantity:  9100, unit: 'kg', supplyRatio: 60, unitPrice: 32.80, originCountry: 'CD', orderDate: '2026-03-20', deliveryDate: '2026-04-25', status: 'pending' },
-  { poId: 'PO-009', poNumber: 'PO-2026-03912', supplierId: 'S-MINE-002', receiverSupplierId: 'S-PRE-001', partId: 'PRT-009', supplierPartCode: 'KAT-CO-ORE',        originalPartCode: 'MIN-CO',       factoryId: 'F-017', quantity:  6050, unit: 'kg', supplyRatio: 40, unitPrice: 32.80, originCountry: 'CD', orderDate: '2026-03-20', deliveryDate: '2026-04-25', status: 'pending' },
+  { poId: 'PO-008', originalPoNumber: 'PO-GZ-2026-03908', supplierInvoiceNumber: 'INV-KAT-26032001', supplierId: 'S-MINE-002', receiverSupplierId: 'S-REF-002', partId: 'PRT-009', supplierPartCode: 'KAT-CO-ORE',        originalPartCode: 'MIN-CO',       factoryId: 'F-017', quantity:  9100, unit: 'kg', supplyRatio: 60, unitPrice: 32.80, originCountry: 'CD', orderDate: '2026-03-20', deliveryDate: '2026-04-25', status: 'pending' },
+  { poId: 'PO-009', originalPoNumber: 'PO-QZ-2026-03912', supplierInvoiceNumber: 'INV-KAT-26032002', supplierId: 'S-MINE-002', receiverSupplierId: 'S-PRE-001', partId: 'PRT-009', supplierPartCode: 'KAT-CO-ORE',        originalPartCode: 'MIN-CO',       factoryId: 'F-017', quantity:  6050, unit: 'kg', supplyRatio: 40, unitPrice: 32.80, originCountry: 'CD', orderDate: '2026-03-20', deliveryDate: '2026-04-25', status: 'pending' },
 
-  // SdA → Pilbara (리튬 원료)
-  { poId: 'PO-010', poNumber: 'PO-2026-04102', supplierId: 'S-MINE-003', receiverSupplierId: 'S-REF-001', partId: 'PRT-010', supplierPartCode: 'SDA-LIOH-RAW',      originalPartCode: 'MIN-LI',       factoryId: 'F-018', quantity:  3800, unit: 'kg', supplyRatio: 100, unitPrice: 84.50, originCountry: 'CL', orderDate: '2026-04-02', deliveryDate: '2026-04-30', status: 'verified' },
+  // SdA → Pilbara
+  { poId: 'PO-010', originalPoNumber: 'PO-PW-2026-04102', supplierInvoiceNumber: 'INV-SDA-26040201', supplierId: 'S-MINE-003', receiverSupplierId: 'S-REF-001', partId: 'PRT-010', supplierPartCode: 'SDA-LIOH-RAW',      originalPartCode: 'MIN-LI',       factoryId: 'F-018', quantity:  3800, unit: 'kg', supplyRatio: 100, unitPrice: 84.50, originCountry: 'CL', orderDate: '2026-04-02', deliveryDate: '2026-04-30', status: 'verified' },
 
   // Pilbara → POS Cathode (수산화리튬 정제 후)
-  { poId: 'PO-011', poNumber: 'PO-2026-04205', supplierId: 'S-REF-001', receiverSupplierId: 'S-CAM-001',  partId: 'PRT-010', supplierPartCode: 'PRW-LIOH-BTG',     originalPartCode: 'MIN-LI',       factoryId: 'F-014', quantity:  4200, unit: 'kg', supplyRatio: 100, unitPrice: 92.30, originCountry: 'AU', orderDate: '2026-04-08', deliveryDate: '2026-05-06', status: 'delivered' },
+  { poId: 'PO-011', originalPoNumber: 'PO-POS-2026-04205', supplierInvoiceNumber: 'INV-PW-26040801', supplierId: 'S-REF-001', receiverSupplierId: 'S-CAM-001',  partId: 'PRT-010', supplierPartCode: 'PRW-LIOH-BTG',     originalPartCode: 'MIN-LI',       factoryId: 'F-014', quantity:  4200, unit: 'kg', supplyRatio: 100, unitPrice: 92.30, originCountry: 'AU', orderDate: '2026-04-08', deliveryDate: '2026-05-06', status: 'delivered' },
 
   // Ganzhou → POS Cathode (황산코발트 정제 후)
-  { poId: 'PO-012', poNumber: 'PO-2026-04308', supplierId: 'S-REF-002', receiverSupplierId: 'S-CAM-001',  partId: 'PRT-009', supplierPartCode: 'GZ-COSO4-99',      originalPartCode: 'MIN-CO',       factoryId: 'F-015', quantity:  2100, unit: 'kg', supplyRatio: 100, unitPrice: 38.20, originCountry: 'CN', orderDate: '2026-04-12', deliveryDate: '2026-05-08', status: 'in_transit' },
+  { poId: 'PO-012', originalPoNumber: 'PO-POS-2026-04308', supplierInvoiceNumber: 'INV-GZ-26041201', supplierId: 'S-REF-002', receiverSupplierId: 'S-CAM-001',  partId: 'PRT-009', supplierPartCode: 'GZ-COSO4-99',      originalPartCode: 'MIN-CO',       factoryId: 'F-015', quantity:  2100, unit: 'kg', supplyRatio: 100, unitPrice: 38.20, originCountry: 'CN', orderDate: '2026-04-12', deliveryDate: '2026-05-08', status: 'in_transit' },
 ];
 
 // ============================================================
@@ -490,4 +500,57 @@ export function getPart(partId: string): Part | undefined {
 // 완성도
 export function getCompleteness(supplierId: string): DataCompleteness | undefined {
   return supplierCompleteness.find(c => c.supplierId === supplierId);
+}
+
+// ============================================================
+// 11. 제품 추적 헬퍼 (P2: BOM 드릴다운)
+// ============================================================
+
+// BOM 트리 노드 — Part + 자식 노드
+export interface BomNode {
+  part: Part;
+  children: BomNode[];
+}
+
+// 특정 루트 부품(예: Pack)부터 BOM 트리 빌드
+export function buildBomTree(rootPartId: string): BomNode | null {
+  const root = parts.find(p => p.id === rootPartId);
+  if (!root) return null;
+
+  const build = (parent: Part): BomNode => {
+    const children = parts
+      .filter(p => p.parentPartId === parent.id)
+      .map(build);
+    return { part: parent, children };
+  };
+
+  return build(root);
+}
+
+// 부품 코드로 BOM 트리 조회 (제품 인스턴스의 productId -> 부품 매칭)
+// 시연용: productId의 prefix(BAT-NCM811-...)는 항상 Pack에 매핑
+export function getBomTreeForProduct(productId: string): BomNode | null {
+  // 모든 시연 제품은 PRT-001 (NCM811 Pack)을 루트로 한다고 가정
+  // 실제 운영에서는 product → BOM 매핑 테이블 별도 필요
+  return buildBomTree('PRT-001');
+}
+
+// 특정 부품 ID로 그 부품을 공급한 PO 목록 (생산 시점 기준 매칭)
+// 시연용: 부품ID로 PO를 모두 가져오되, 생산 시점에 가까운 것 우선
+export function getPOsForPart(partId: string, beforeDate?: string): PurchaseOrder[] {
+  const filtered = purchaseOrders.filter(po => po.partId === partId);
+  if (!beforeDate) return filtered;
+  // 생산일 이전의 PO들 중 가장 최근 (실제로는 더 정교한 매칭 로직 필요)
+  return filtered
+    .filter(po => po.deliveryDate <= beforeDate)
+    .sort((a, b) => b.deliveryDate.localeCompare(a.deliveryDate));
+}
+
+// 부품 ID로 공급 가능한 모든 협력사 (해당 부품 PO를 가진 협력사들)
+export function getSuppliersForPart(partId: string): string[] {
+  const supplierIds = new Set<string>();
+  purchaseOrders
+    .filter(po => po.partId === partId)
+    .forEach(po => supplierIds.add(po.supplierId));
+  return Array.from(supplierIds);
 }
