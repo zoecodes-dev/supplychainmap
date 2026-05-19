@@ -299,3 +299,5 @@ export const auditTrail: AuditEntry[] = [
   { step: 6, timestamp: '2026-05-14 09:12:10.967', nodeType: 'agent', nodeName: 'Compliance',   model: 'opus-4',   promptVersion: 'v4.2.0', durationMs: 3201, inputHash: '0xe123...8c91', outputHash: '0xf456...2b73', decision: 'all_passed' },
   { step: 7, timestamp: '2026-05-14 09:12:14.218', nodeType: 'agent', nodeName: 'Action',       model: 'haiku-4',  promptVersion: 'v1.4.0', durationMs: 1012, inputHash: '0xf623...5b41', outputHash: '0x1a87...9f53', decision: 'issue_dpp' },
 ];
+
+export const sampleAuditTrail = auditTrail;
