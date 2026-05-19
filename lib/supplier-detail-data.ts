@@ -15,11 +15,12 @@
 //   - training_records         (교육 이수 현황)
 // ============================================================
 
-import { suppliers as supplierList } from './data';
-// tierShortLabels는 lib/data.ts에서 단일 출처로 관리 (중복 제거)
-// 외부에서 이 파일을 통해 import하던 코드 호환을 위해 re-export
-export { tierShortLabels } from './data';
-export type { Tier as TierLevel } from './data';
+import { suppliers as supplierList, type Tier } from './data'; 
+// tierShortLabels는 lib/data.ts에서 단일 출처로 관리 (중복 제거) 
+// // 외부에서 이 파일을 통해 import하던 코드 호환을 위해 re-export 
+export { tierShortLabels } from './data'; 
+// // TierLevel은 Tier의 별칭 — 파일 내부에서 사용 + 외부 re-export 
+export type TierLevel = Tier; 
 
 // ============================================================
 // 0. 규제 타입 (v2 — 11개 규제 전체)
