@@ -9,6 +9,8 @@ interface KpiCardProps {
   icon?: LucideIcon;
   tone?: 'default' | 'ok' | 'warn' | 'alert' | 'info';
   hint?: string;
+  onClick?: () => void;
+  active?: boolean;
 }
 
 const toneStyles = {
@@ -27,9 +29,30 @@ const valueColors = {
   info: 'text-blue-700',
 };
 
-export default function KpiCard({ label, value, unit, delta, icon: Icon, tone = 'default', hint }: KpiCardProps) {
+export default function KpiCard({
+  label,
+  value,
+  unit,
+  delta,
+  icon: Icon,
+  tone = 'default',
+  hint,
+  onClick,
+  active = false,
+}: KpiCardProps) {
+  const Component = onClick ? 'button' : 'div';
+
   return (
-    <div className={clsx('relative rounded-sm border p-5', toneStyles[tone])}>
+    <Component
+      type={onClick ? 'button' : undefined}
+      onClick={onClick}
+      className={clsx(
+        'relative w-full rounded-sm border p-5 text-left transition-colors',
+        toneStyles[tone],
+        onClick && 'cursor-pointer hover:-translate-y-0.5 hover:border-accent-500/60 hover:bg-accent-500/5 focus:outline-none focus:ring-2 focus:ring-accent-500/40',
+        active && 'border-accent-500/70 ring-1 ring-accent-500/30'
+      )}
+    >
       <div className="flex items-start justify-between mb-3">
         <div className="text-[10px] font-medium uppercase tracking-wider text-ink-400">
           {label}
@@ -57,6 +80,6 @@ export default function KpiCard({ label, value, unit, delta, icon: Icon, tone = 
         )}
         {hint && <span className="text-[11px] text-ink-500">{hint}</span>}
       </div>
-    </div>
+    </Component>
   );
 }

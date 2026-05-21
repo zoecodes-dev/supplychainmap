@@ -77,13 +77,51 @@ const riskLevelColor: Record<string, string> = {
 };
 
 // ── 탭 정의 ──────────────────────────────────────────────────────
-type TabKey = 'overview' | 'high-risk' | 'pending' | 'dpp-ready' | 'hitl-queue';
+type TabKey = 'overview' | 'today-batches' | 'violation-cases' | 'high-risk' | 'pending' | 'dpp-ready' | 'hitl-queue';
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'overview',    label: 'Overview' },
+  { key: 'today-batches', label: 'Today Batches' },
+  { key: 'violation-cases', label: 'Violation Cases' },
   { key: 'high-risk',   label: 'High Risk' },
   { key: 'pending',     label: 'Pending' },
   { key: 'dpp-ready',   label: 'DPP Ready' },
   { key: 'hitl-queue',  label: 'HITL Queue' },
+];
+
+const violationCases = [
+  {
+    id: 'VIO-2026-0514-001',
+    batchId: 'LOT-MIN-240514-D',
+    supplier: 'Xinjiang Mineral Resources',
+    regulation: 'UFLPA',
+    region: 'US',
+    severity: 'critical',
+    status: '반려',
+    detectedAt: '2026-05-14 10:44',
+    summary: '신장 지역 원산지 리스크가 확인되어 UFLPA 통관 제한 대상으로 분류됨',
+  },
+  {
+    id: 'VIO-2026-0514-002',
+    batchId: 'LOT-COB-240514-E',
+    supplier: 'Ganzhou Rare Metals',
+    regulation: 'IRA/FEOC',
+    region: 'US',
+    severity: 'high',
+    status: 'HITL 필요',
+    detectedAt: '2026-05-14 11:08',
+    summary: '중국 국영기업 직접 지분 41.2%로 FEOC 부적격 가능성 감지',
+  },
+  {
+    id: 'VIO-2026-0514-003',
+    batchId: 'LOT-PRE-240514-C',
+    supplier: 'Quzhou Precursor Co.',
+    regulation: 'EU 배터리법 Art.47',
+    region: 'EU',
+    severity: 'medium',
+    status: '증빙 요청',
+    detectedAt: '2026-05-14 10:18',
+    summary: '공급망 실사 문서와 원산지 증빙 일부 누락',
+  },
 ];
 
 // ── 서브 컴포넌트 ─────────────────────────────────────────────────
@@ -177,6 +215,16 @@ export default function DashboardPage() {
             >
               {tab.label}
               {/* 탭별 카운트 배지 */}
+              {tab.key === 'today-batches' && batchesInProgress.length > 0 && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-xs bg-accent-500/15 text-accent-500 num-mono">
+                  {batchesInProgress.length}
+                </span>
+              )}
+              {tab.key === 'violation-cases' && violationCases.length > 0 && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-xs bg-red-500/15 text-red-400 num-mono">
+                  {violationCases.length}
+                </span>
+              )}
               {tab.key === 'high-risk'  && highRiskList.length > 0 && (
                 <span className="text-[10px] px-1.5 py-0.5 rounded-xs bg-red-500/15 text-red-400 num-mono">
                   {highRiskList.length}
@@ -209,10 +257,41 @@ export default function DashboardPage() {
         <div className="p-8 space-y-8">
           <section>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <KpiCard label="오늘 처리 배치"  value={kpis.todayBatches}    unit="건" icon={Layers}      delta={{ value: '+8 어제 대비', trend: 'up' }} />
-              <KpiCard label="발행 완료 DPP"   value={kpis.approvedDPP}     unit="건" icon={CheckCircle2} tone="ok"    hint={`승인율 ${kpis.complianceRate}%`} />
-              <KpiCard label="HITL 검토 대기"  value={hitlWaiting}          unit="건" icon={Clock}        tone="warn"  hint="ESG팀장 승인 필요" />
-              <KpiCard label="위반 감지"        value={kpis.violations}      unit="건" icon={ShieldAlert}  tone="alert" hint={`EU ${euViolations} · US ${usViolations}`} />
+              <KpiCard
+                label="오늘 처리 배치"
+                value={kpis.todayBatches}
+                unit="건"
+                icon={Layers}
+                delta={{ value: '+8 어제 대비', trend: 'up' }}
+                onClick={() => setActiveTab('today-batches')}
+              />
+              <KpiCard
+                label="발행 완료 DPP"
+                value={kpis.approvedDPP}
+                unit="건"
+                icon={CheckCircle2}
+                tone="ok"
+                hint={`승인율 ${kpis.complianceRate}%`}
+                onClick={() => setActiveTab('dpp-ready')}
+              />
+              <KpiCard
+                label="HITL 검토 대기"
+                value={hitlWaiting}
+                unit="건"
+                icon={Clock}
+                tone="warn"
+                hint="ESG팀장 승인 필요"
+                onClick={() => setActiveTab('hitl-queue')}
+              />
+              <KpiCard
+                label="위반 감지"
+                value={kpis.violations}
+                unit="건"
+                icon={ShieldAlert}
+                tone="alert"
+                hint={`EU ${euViolations} · US ${usViolations}`}
+                onClick={() => setActiveTab('violation-cases')}
+              />
             </div>
           </section>
 
@@ -333,7 +412,83 @@ export default function DashboardPage() {
       )}
 
       {/* ══════════════════════════════════════════════════════════
-          탭 2 — High Risk
+          탭 1-1 — Today Batches
+      ══════════════════════════════════════════════════════════ */}
+      {activeTab === 'today-batches' && (
+        <div className="p-8">
+          <Card
+            title="오늘 처리 배치"
+            subtitle={`대시보드 샘플 ${batchesInProgress.length}건 · 전체 KPI ${kpis.todayBatches}건`}
+            action={<Link href="/queue" className="flex items-center gap-1 text-[11px] text-accent-400 hover:text-accent-300">검증 대기열 열기 <ArrowRight className="w-3 h-3" /></Link>}
+          >
+            {batchesInProgress.length === 0 ? (
+              <EmptyState label="현재 해당 항목이 없습니다" />
+            ) : (
+              <div className="space-y-0">
+                {batchesInProgress.map(batch => <BatchRow key={batch.id} batch={batch} />)}
+              </div>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════
+          탭 2 — Violation Cases
+      ══════════════════════════════════════════════════════════ */}
+      {activeTab === 'violation-cases' && (
+        <div className="p-8">
+          <Card
+            title="위반 감지"
+            subtitle={`실시간 규제 위반 케이스 ${violationCases.length}건`}
+          >
+            <div className="space-y-2">
+              {violationCases.map(item => (
+                <div
+                  key={item.id}
+                  className="flex items-center gap-4 p-4 rounded-xs border border-red-700/30 bg-red-500/5"
+                >
+                  <div className="w-8 h-8 rounded-xs border border-red-700/30 bg-red-500/10 flex items-center justify-center shrink-0">
+                    <AlertTriangle className="w-4 h-4 text-red-500" strokeWidth={1.8} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <span className="text-xs font-bold num-mono text-red-500">{item.id}</span>
+                      <span className="text-sm font-semibold text-ink-100">{item.supplier}</span>
+                      <span className={clsx('inline-flex items-center px-1.5 py-0.5 rounded-xs border text-[10px] font-semibold', regionColor[item.region] || 'border-ink-600 text-ink-400')}>
+                        {item.region}
+                      </span>
+                    </div>
+                    <div className="text-xs text-ink-500 truncate">{item.summary}</div>
+                    <div className="flex items-center gap-2 mt-1.5 text-[10px] text-ink-500 num-mono flex-wrap">
+                      <span>{item.batchId}</span>
+                      <span>·</span>
+                      <span>{item.regulation}</span>
+                      <span>·</span>
+                      <span>{item.detectedAt}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className={clsx(
+                      'text-[10px] font-semibold px-2 py-1 rounded-xs border',
+                      item.severity === 'critical' ? 'border-red-700/40 bg-red-500/12 text-red-600' :
+                      item.severity === 'high' ? 'border-orange-700/30 bg-orange-500/8 text-orange-500' :
+                      'border-amber-700/30 bg-amber-500/8 text-amber-500'
+                    )}>
+                      {item.severity === 'critical' ? '긴급' : item.severity === 'high' ? '높음' : '보통'}
+                    </span>
+                    <span className="text-[10px] font-medium px-2 py-1 rounded-xs border border-ink-700 bg-ink-900/40 text-ink-400">
+                      {item.status}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════
+          탭 3 — High Risk
       ══════════════════════════════════════════════════════════ */}
       {activeTab === 'high-risk' && (
         <div className="p-8">

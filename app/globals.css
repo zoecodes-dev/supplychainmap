@@ -5,22 +5,18 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --grid-line: rgba(0, 0, 0, 0.04);
-}
-
 html, body {
-  background: #FAFAF7;
+  background-color: #FAFAF7;
+  background-image: none;
   color: #1A1F26;
   font-feature-settings: "ss01", "ss02";
 }
 
 body {
-  background-image:
-    linear-gradient(var(--grid-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-  background-size: 56px 56px;
-  background-position: -1px -1px;
+  background-color: #FAFAF7;
+  background-image: none;
+  background-size: auto;
+  background-position: 0 0;
 }
 
 /* 회사 제출용 톤: 데이터 강조, 절제된 색감 */

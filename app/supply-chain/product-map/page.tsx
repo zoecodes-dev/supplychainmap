@@ -12,7 +12,7 @@ import {
 import {
   getSupplierName, getContacts, getFactories, getCertifications,
   getCompleteness, getIncomingPOs, getOutgoingPOs, getRiskProfile,
-  regulationMeta, type Regulation,
+  regulationMeta, parts, purchaseOrders, type Regulation,
 } from '@/lib/supplier-detail-data';
 import {
   Search, X, ChevronRight, Building2, Factory, Truck,
@@ -24,7 +24,7 @@ import {
 import clsx from 'clsx';
 
 // ─── 타입 ────────────────────────────────────────────────────
-type PanelTab = 'overview' | 'factory' | 'contacts' | 'risk' | 'regulations';
+type PanelTab = 'overview' | 'contacts' | 'factory' | 'products' | 'risk' | 'regulations';
 
 // ─── 맵 레이아웃 (기존 SupplyChainMap과 동일 좌표) ───────────
 const layout: Record<string, { x: number; y: number }> = {
@@ -98,7 +98,7 @@ interface SearchHit {
   supplierId: string;
   label: string;
   sub: string;
-  kind: 'supplier' | 'product';
+  kind: 'supplier' | 'product' | 'material';
   serialNumber?: string;
 }
 
@@ -125,6 +125,39 @@ function buildSearchIndex(): SearchHit[] {
       serialNumber: inst.serialNumber,
     });
   });
+  parts.forEach(part => {
+    const relatedPOs = purchaseOrders.filter(po => po.partId === part.id);
+    if (relatedPOs.length === 0) {
+      hits.push({
+        supplierId: 'S-CELL-001',
+        label: part.partName,
+        sub: `${part.partCode} · ${part.materialType} · HS ${part.hsCode}`,
+        kind: 'material',
+      });
+      return;
+    }
+
+    relatedPOs.forEach(po => {
+      const supplier = suppliers.find(s => s.id === po.supplierId);
+      const supplierName = getSupplierName(po.supplierId);
+      hits.push({
+        supplierId: po.supplierId,
+        label: `${part.partName} · ${supplierName?.shortNameKo ?? supplierName?.shortNameEn ?? supplier?.name ?? po.supplierId}`,
+        sub: `${po.poId} · ${part.partCode} · ${po.supplierPartCode} · ${po.quantity.toLocaleString()} ${po.unit} · 원산지 ${po.originCountry}`,
+        kind: 'material',
+      });
+    });
+  });
+  supplyEdges.forEach(edge => {
+    const supplier = suppliers.find(s => s.id === edge.from);
+    const supplierName = getSupplierName(edge.from);
+    hits.push({
+      supplierId: edge.from,
+      label: `${edge.material} · ${supplierName?.shortNameKo ?? supplierName?.shortNameEn ?? supplier?.name ?? edge.from}`,
+      sub: `${edge.from} → ${edge.to} · ${edge.volume}t · 공급망 연결`,
+      kind: 'material',
+    });
+  });
   return hits;
 }
 
@@ -145,6 +178,10 @@ function DetailPanel({
   const inPOs = getIncomingPOs(supplier.id);
   const outPOs = getOutgoingPOs(supplier.id);
   const primaryContact = contacts.find(c => c.isPrimary) ?? contacts[0];
+  const productionPOs = purchaseOrders.filter(po => po.supplierId === supplier.id);
+  const factoryIds = new Set(factories.map(f => f.factoryId));
+  const producedProducts = productInstances.filter(p => factoryIds.has(p.producedAtFactoryId));
+  const productionItemCount = productionPOs.length + producedProducts.length;
 
   const riskLevelMeta: Record<string, { label: string; color: string }> = {
     low:      { label: '저위험',   color: 'text-emerald-600' },
@@ -157,6 +194,7 @@ function DetailPanel({
     { key: 'overview',    label: '개요' },
     { key: 'contacts',    label: '담당자', count: contacts.length },
     { key: 'factory',     label: '공장', count: factories.filter(f => f.factoryRole !== 'headquarters').length },
+    { key: 'products',    label: '생산제품', count: productionItemCount },
     { key: 'risk',        label: '리스크' },
     { key: 'regulations', label: '규제' },
   ];
@@ -197,13 +235,13 @@ function DetailPanel({
       </div>
 
       {/* 탭 */}
-      <div className="flex items-center gap-0.5 px-4 py-2 border-b border-ink-700 bg-ink-900/20 shrink-0 overflow-x-auto">
+      <div className="flex flex-wrap items-center gap-1 px-4 py-2 border-b border-ink-700 bg-ink-900/20 shrink-0">
         {tabs.map(t => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
             className={clsx(
-              'flex items-center gap-1 px-2.5 py-1.5 rounded-xs text-[11px] font-medium transition-colors whitespace-nowrap',
+              'flex items-center gap-1 px-2 py-1.5 rounded-xs text-[11px] font-medium transition-colors whitespace-nowrap',
               tab === t.key
                 ? 'bg-accent-500/10 text-accent-600 border border-accent-700/30'
                 : 'text-ink-400 hover:text-ink-200'
@@ -412,7 +450,9 @@ function DetailPanel({
         {tab === 'factory' && (
           <Section title="공장·사업장">
             <div className="space-y-2">
-              {factories.map(f => (
+              {factories.map(f => {
+                const factoryContacts = contacts.filter(c => c.factoryId === f.factoryId);
+                return (
                 <div key={f.factoryId} className={clsx(
                   'p-3 rounded-xs border',
                   f.factoryRole === 'headquarters' ? 'border-blue-700/30 bg-blue-500/5' : 'border-ink-700/60 bg-ink-900/30'
@@ -483,9 +523,137 @@ function DetailPanel({
                       )}
                     </div>
                   )}
+
+                  <div className="mt-3 pt-3 border-t border-ink-700/50">
+                    <div className="text-[9px] uppercase tracking-wider text-ink-500 font-semibold mb-1.5">
+                      공장 담당자 연락처
+                    </div>
+                    {factoryContacts.length === 0 ? (
+                      <div className="text-[10px] text-ink-500">등록된 공장 담당자가 없습니다</div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {factoryContacts.map(c => (
+                          <div key={c.contactId} className="rounded-xs border border-ink-700/50 bg-white/50 px-2.5 py-2">
+                            <div className="flex items-start justify-between gap-2 mb-1">
+                              <div>
+                                <div className="text-[11px] font-semibold text-ink-100">{c.name}</div>
+                                <div className="text-[10px] text-ink-500">{c.role}{c.department ? ` · ${c.department}` : ''}</div>
+                              </div>
+                              {c.isPrimary && (
+                                <span className="shrink-0 text-[8px] px-1.5 py-0.5 rounded-xs border border-accent-700/30 bg-accent-500/8 text-accent-600">
+                                  주담당
+                                </span>
+                              )}
+                            </div>
+                            <div className="space-y-0.5">
+                              <a href={`mailto:${c.email}`} className="flex items-center gap-1.5 text-[10px] text-blue-600 hover:text-blue-500">
+                                <Mail className="w-2.5 h-2.5" />
+                                {c.email}
+                              </a>
+                              <div className="flex items-center gap-1.5 text-[10px] text-ink-400">
+                                <Phone className="w-2.5 h-2.5 text-ink-500" />
+                                {c.phone}
+                              </div>
+                              {c.mobile && (
+                                <div className="flex items-center gap-1.5 text-[10px] text-ink-500">
+                                  <Phone className="w-2.5 h-2.5 text-ink-600" />
+                                  {c.mobile} <span className="text-[9px]">(모바일)</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
+          </Section>
+        )}
+
+        {/* ── 생산제품 탭 ── */}
+        {tab === 'products' && (
+          <Section title="생산제품·납품 품목">
+            {productionItemCount === 0 ? (
+              <div className="text-xs text-ink-500 text-center py-4">등록된 생산제품 또는 납품 품목이 없습니다</div>
+            ) : (
+              <div className="space-y-3">
+                {factories.map(f => {
+                  const factoryPOs = productionPOs.filter(po => po.factoryId === f.factoryId);
+                  const factoryProducts = producedProducts.filter(p => p.producedAtFactoryId === f.factoryId);
+                  if (factoryPOs.length === 0 && factoryProducts.length === 0) return null;
+
+                  return (
+                    <div key={f.factoryId} className="rounded-xs border border-ink-700/60 bg-ink-900/30 p-3">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="min-w-0">
+                          <div className="text-xs font-semibold text-ink-100 truncate">{f.factoryName}</div>
+                          {f.factoryNameEn && (
+                            <div className="text-[10px] text-ink-500 truncate">{f.factoryNameEn}</div>
+                          )}
+                        </div>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-xs border border-ink-700 text-ink-400 shrink-0">
+                          {factoryPOs.length + factoryProducts.length}개 품목
+                        </span>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        {factoryPOs.map(po => {
+                          const part = parts.find(p => p.id === po.partId);
+                          return (
+                            <div key={po.poId} className="rounded-xs border border-ink-700/50 bg-white/50 px-2.5 py-2">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="text-[11px] font-semibold text-ink-100 truncate">
+                                    {part?.partName ?? po.partId}
+                                  </div>
+                                  <div className="text-[10px] text-ink-500 truncate">
+                                    {part?.partCode ?? po.originalPartCode} · {po.supplierPartCode}
+                                  </div>
+                                </div>
+                                <span className="text-[10px] text-ink-400 num-mono shrink-0">
+                                  {po.quantity.toLocaleString()} {po.unit}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 mt-1 text-[10px] text-ink-500 num-mono flex-wrap">
+                                <span>{po.poId}</span>
+                                <span>·</span>
+                                <span>원산지 {po.originCountry}</span>
+                                <span>·</span>
+                                <span>공급 비율 {po.supplyRatio}%</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {factoryProducts.map(product => (
+                          <div key={product.serialNumber} className="rounded-xs border border-blue-700/30 bg-blue-500/5 px-2.5 py-2">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="text-[11px] font-semibold text-ink-100 truncate">{product.modelName}</div>
+                                <div className="text-[10px] text-ink-500 truncate">{product.productId}</div>
+                              </div>
+                              <span className="text-[9px] px-1.5 py-0.5 rounded-xs border border-blue-700/30 text-blue-600 bg-blue-500/8 shrink-0">
+                                완제품
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-1 text-[10px] text-ink-500 num-mono flex-wrap">
+                              <span>{product.serialNumber}</span>
+                              <span>·</span>
+                              <span>{product.destination}</span>
+                              <span>·</span>
+                              <span>{product.dppStatus === 'issued' ? 'DPP 발행' : product.dppStatus === 'in_progress' ? 'DPP 진행 중' : 'DPP 대기'}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </Section>
         )}
 
@@ -978,16 +1146,20 @@ function ProductMapContent() {
                 >
                   <div className={clsx(
                     'w-5 h-5 rounded-xs flex items-center justify-center shrink-0',
-                    hit.kind === 'product' ? 'bg-blue-500/10 text-blue-500' : 'bg-accent-500/10 text-accent-500',
+                    hit.kind === 'product' && 'bg-blue-500/10 text-blue-500',
+                    hit.kind === 'material' && 'bg-amber-500/10 text-amber-600',
+                    hit.kind === 'supplier' && 'bg-accent-500/10 text-accent-500',
                   )}>
-                    {hit.kind === 'product' ? <Box className="w-3 h-3" /> : <Building2 className="w-3 h-3" />}
+                    {hit.kind === 'product' ? <Box className="w-3 h-3" /> :
+                     hit.kind === 'material' ? <Layers className="w-3 h-3" /> :
+                     <Building2 className="w-3 h-3" />}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="text-xs font-medium text-ink-200 truncate">{hit.label}</div>
                     <div className="text-[10px] text-ink-500 truncate">{hit.sub}</div>
                   </div>
                   <span className="text-[9px] text-ink-500 shrink-0">
-                    {hit.kind === 'product' ? '제품' : '협력사'}
+                    {hit.kind === 'product' ? '제품' : hit.kind === 'material' ? '품목' : '협력사'}
                   </span>
                 </button>
               ))}
@@ -1054,8 +1226,9 @@ function ProductMapContent() {
 
         {/* 인라인 상세 패널 (모달 없이) */}
         {selectedSupplier && (
-          <div className="w-[360px] shrink-0 border-l border-ink-700 overflow-hidden">
+          <div className="w-[400px] shrink-0 border-l border-ink-700 overflow-hidden">
             <DetailPanel
+              key={selectedSupplier.id}
               supplier={selectedSupplier}
               onClose={() => { setSelectedSupplier(null); setFocusIds(null); }}
             />
