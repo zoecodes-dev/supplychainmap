@@ -1,1070 +1,1013 @@
-'use client';
+"use client";
 
-import { useState, useMemo, useCallback, useEffect, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
-import PageHeader from '@/components/PageHeader';
-import Badge from '@/components/Badge';
-import Link from 'next/link';
+import React, { useState, useMemo } from "react";
 import {
-  suppliers, supplyEdges, productInstances,
-  type Supplier, type SupplierStatus, type Tier,
-} from '@/lib/data';
-import {
-  getSupplierName, getContacts, getFactories, getCertifications,
-  getCompleteness, getIncomingPOs, getOutgoingPOs, getRiskProfile,
-  regulationMeta, type Regulation,
-} from '@/lib/supplier-detail-data';
-import {
-  Search, X, ChevronRight, Building2, Factory, Truck,
-  AlertTriangle, CheckCircle2, Clock, ShieldAlert, MapPin,
-  Phone, Mail, Globe, Layers, ArrowRight, Box,
-  Users, Award, AlertCircle, TrendingUp, Info,
-  ChevronDown, ChevronUp, ExternalLink,
-} from 'lucide-react';
-import clsx from 'clsx';
+  Search, Package, Calendar, Building2, Factory, Layers, GitBranch,
+  ChevronRight, ChevronDown, X, ArrowLeft, Boxes, MapPin, Percent,
+  Hash, Truck, FileText, CheckCircle2, AlertTriangle, Mail, Phone,
+  ShieldAlert, Award, Users, AlertCircle, Activity, Send, ScrollText,
+} from "lucide-react";
 
-// ─── 타입 ────────────────────────────────────────────────────
-type PanelTab = 'overview' | 'factory' | 'contacts' | 'risk' | 'regulations';
+/* ============================================================
+   KIRA — 제품 단위 검색 (단위기간 · 고객사 · BOM 버전)
+   진입: ① BOM 버전 검색  또는  ② 단위기간 + 납품 고객사 검색
+   결과: 매칭 인스턴스 하나씩 → 선택 시 그 버전 BOM 전개
+   ============================================================ */
 
-// ─── 맵 레이아웃 (기존 SupplyChainMap과 동일 좌표) ───────────
-const layout: Record<string, { x: number; y: number }> = {
-  'S-MINE-001': { x: 80,  y: 110 },
-  'S-MINE-002': { x: 80,  y: 280 },
-  'S-MINE-003': { x: 80,  y: 450 },
-  'S-REF-001':  { x: 320, y: 110 },
-  'S-REF-002':  { x: 320, y: 280 },
-  'S-PRE-001':  { x: 320, y: 450 },
-  'S-CAM-001':  { x: 580, y: 130 },
-  'S-CAM-002':  { x: 580, y: 290 },
-  'S-ANO-001':  { x: 580, y: 450 },
-  'S-CELL-001': { x: 840, y: 290 },
+// 원본 톤(tailwind.config.ts ink/accent/signal). ink는 역스케일: 900=흰색, 100=거의검정
+const C = {
+  bg: "#FFFFFF",        // ink-900 캔버스(흰색)
+  panel: "#F8FAFC",     // ink-800 패널
+  panelSoft: "#F8FAFC", // 동일(라이트라 투명도 불필요)
+  line: "#E2E8F0",      // ink-700 테두리
+  lineSoft: "#E2E8F0",  // ink-700
+  text: "#0F172A",      // ink-100 본문
+  sub: "#475569",       // ink-400 보조
+  faint: "#64748B",     // ink-500 흐림
+  accent: "#10B981",    // accent-500
+  accentDim: "#ECFDF5", // accent-50 (연한 배경)
+  accentLine: "#047857",// accent-700 (강조선/텍스트)
+  blue: "#2563EB",      // signal-info
+  blueDim: "#EFF6FF",   // 연한 파랑 배경
+  amber: "#B45309",     // signal-warn
+  red: "#DC2626",       // signal-alert
+  violet: "#7C3AED",    // 보라(규제 칩) — 원본에 없으나 톤 맞춰 진하게
 };
 
-const statusColors: Record<SupplierStatus, { stroke: string; fill: string; text: string; glow: string }> = {
-  verified:  { stroke: '#10B981', fill: '#10B98112', text: '#34D399', glow: '#10B98130' },
-  pending:   { stroke: '#3B82F6', fill: '#3B82F612', text: '#60A5FA', glow: '#3B82F630' },
-  review:    { stroke: '#F59E0B', fill: '#F59E0B12', text: '#FBBF24', glow: '#F59E0B30' },
-  violation: { stroke: '#EF4444', fill: '#EF444420', text: '#F87171', glow: '#EF444440' },
+// ── 마스터: 협력사 / 공장 ──────────────────────────────────
+const SUP = {
+  "S-CELL-001": "Hanyang Cell (자사)",
+  "S-CAM-001": "POS Cathode (KR)", "S-CAM-002": "Yantai Cathode (CN)",
+  "S-ANO-001": "Mitsui Anode (JP)", "S-PRE-001": "Quzhou Precursor (CN)",
+  "S-REF-001": "Pohang/PIW Refining (AU)", "S-REF-002": "Ganzhou Rare Metals (CN)",
+  "S-MINE-001": "Sulawesi/NORI Nickel (ID)", "S-MINE-002": "Katanga Cobalt (CD)",
+  "S-MINE-003": "Xinjiang Mineral (CN)",
+};
+const FAC = {
+  "F-001": "한양 1공장(울산)", "F-002": "한양 2공장(서산)", "F-003": "한양 3공장(천안)",
+  "F-005": "포항 공장", "F-006": "광양 공장", "F-008": "옌타이 공장",
+  "F-010": "오사카 공장", "F-012": "취저우 공장", "F-014": "필바라 정제소",
+  "F-016": "술라웨시 광산", "F-017": "카탕가 광산", "F-018": "신장 광산",
 };
 
-const columnHeaders = [
-  { left: '3%',  tier: 5, label: '원광' },
-  { left: '24%', tier: 4, label: '전구체·정제' },
-  { left: '46%', tier: 3, label: '활물질' },
-  { left: '72%', tier: 1, label: 'Cell · Module · Pack' },
+// 광산은 자체 사이트가 없음 → 운영사/데이터 보고 주체가 대신 보고
+// (control point = 운영사·정제소가 광산 원산지 데이터를 제출, OECD/배터리법 실사 관행)
+const MINE_OPERATORS = {
+  "S-MINE-001": { operatorId: "OP-NORI", operator: "NORI Mining Pte Ltd", note: "술라웨시 광산 운영사 — 광산 데이터 대리 보고" },
+  "S-MINE-002": { operatorId: "OP-GLENC", operator: "Glencore Katanga SARL", note: "카탕가 광산 운영사 — 원산지·실사 데이터 보고" },
+  "S-MINE-003": { operatorId: "OP-XJM",  operator: "Xinjiang Mining Group", note: "신장 광산 운영사 — UFLPA 검증 데이터 보고 주체" },
+};
+
+// ── 협력사 상세 (팝업 패널용) — 기존 product-map DetailPanel 정보 ──
+const SUP_DETAIL = {
+  "S-CELL-001": {
+    nameEn: "Hanyang Cell Manufacturing", nameKo: "한양셀 (자사)", country: "KR", role: "셀·모듈·팩 제조 (자사)", region: "울산·서산·천안",
+    status: "verified", riskLevel: "low", riskScore: 8, feoc: "eligible", carbon: 12.4, completeness: 100,
+    missing: [], highRisk: [], isSelf: true,
+    contacts: [
+      { name: "박지훈 (Park Jihoon)", role: "생산총괄 · 제조본부", email: "jh.park@hanyang-cell.com", phone: "+82-52-200-3000", primary: true },
+      { name: "최유진 (Choi Yujin)", role: "품질보증 · QA본부", email: "yj.choi@hanyang-cell.com", phone: "+82-41-580-3200", primary: false },
+    ],
+    factories: [
+      { name: "한양 1공장(울산)", id: "F-001", addr: "울산 남구", regs: ["EU_BATTERY", "IRA"], dest: "EU" },
+      { name: "한양 2공장(서산)", id: "F-002", addr: "충남 서산시", regs: ["EU_BATTERY", "IRA"], dest: "US" },
+      { name: "한양 3공장(천안)", id: "F-003", addr: "충남 천안시", regs: ["EU_BATTERY"], dest: "EU" },
+    ],
+    certs: [
+      { name: "ISO 9001", status: "active" }, { name: "ISO 14001", status: "active" },
+      { name: "IATF 16949", status: "active" }, { name: "ISO 45001", status: "active" },
+    ],
+    regs: ["EU_BATTERY", "IRA", "CSDDD"], outPO: 0, inPO: 12,
+  },
+  "S-CAM-001": {
+    nameEn: "POS Cathode Materials", nameKo: "POS 양극재", country: "KR", role: "양극재 (NCM811)", region: "경북 포항",
+    status: "verified", riskLevel: "low", riskScore: 18, feoc: "eligible", carbon: 18.7, completeness: 96,
+    missing: [], highRisk: [],
+    contacts: [
+      { name: "정태양 (Jung Taeyang)", role: "포항공장장 · 생산운영팀", email: "ty.jung@pos-cathode.com", phone: "+82-54-280-1200", primary: false },
+      { name: "한소희 (Han Sohee)", role: "광양공장장 · 생산운영팀", email: "sh.han@pos-cathode.com", phone: "+82-61-793-1200", primary: true },
+    ],
+    factories: [
+      { name: "포항 공장", id: "F-005", addr: "경북 포항시 남구", regs: ["EU_BATTERY", "IRA"], dest: "EU" },
+      { name: "광양 공장", id: "F-006", addr: "전남 광양시", regs: ["EU_BATTERY"], dest: "EU" },
+    ],
+    certs: [
+      { name: "ISO 9001", status: "active" }, { name: "ISO 14001", status: "active" },
+      { name: "IATF 16949", status: "expiring_soon" },
+    ],
+    regs: ["EU_BATTERY", "IRA", "CSDDD"], outPO: 4, inPO: 2,
+  },
+  "S-CAM-002": {
+    nameEn: "Yantai Cathode Tech", nameKo: "옌타이 양극재", country: "CN", role: "양극재 (NCA)", region: "산둥성 옌타이",
+    status: "review", riskLevel: "medium", riskScore: 48, feoc: "under_review", carbon: 24.1, completeness: 72,
+    missing: ["IRMA 인증서", "FEOC 지분 공시"], highRisk: ["중국 소재 · FEOC 검토 필요"],
+    contacts: [{ name: "Fang Chen", role: "ESG Manager · Compliance", email: "f.chen@yantai-cathode.cn", phone: "+86-535-620-1180", primary: true }],
+    factories: [{ name: "옌타이 공장", id: "F-008", addr: "산둥성 옌타이시", regs: ["EU_BATTERY", "UFLPA"], dest: "EU" }],
+    certs: [{ name: "ISO 9001", status: "active" }],
+    regs: ["EU_BATTERY", "UFLPA", "IRA_FEOC"], outPO: 1, inPO: 1,
+  },
+  "S-ANO-001": {
+    nameEn: "Mitsui Anode Industries", nameKo: "미쓰이 음극재", country: "JP", role: "음극재 (흑연)", region: "오사카",
+    status: "verified", riskLevel: "low", riskScore: 12, feoc: "eligible", carbon: 8.3, completeness: 98,
+    missing: [], highRisk: [],
+    contacts: [{ name: "Kenji Yamamoto", role: "Quality Mgr · Quality", email: "k.yamamoto@mitsui-anode.jp", phone: "+81-6-6210-1180", primary: true }],
+    factories: [{ name: "오사카 공장", id: "F-010", addr: "오사카부", regs: ["EU_BATTERY"], dest: "EU" }],
+    certs: [{ name: "ISO 9001", status: "active" }, { name: "ISO 14001", status: "active" }, { name: "IATF 16949", status: "active" }],
+    regs: ["EU_BATTERY", "CSDDD"], outPO: 1, inPO: 0,
+  },
+  "S-PRE-001": {
+    nameEn: "Quzhou Precursor Co.", nameKo: "취저우 전구체", country: "CN", role: "전구체 (NCM)", region: "저장성 취저우",
+    status: "pending", riskLevel: "medium", riskScore: 52, feoc: "under_review", carbon: 31.2, completeness: 64,
+    missing: ["제조공정도", "FEOC 지분 공시", "환경 인증"], highRisk: ["전구체 공정 데이터 미비"],
+    contacts: [{ name: "Li Wei", role: "ESG Manager · Compliance", email: "l.wei@qz-precursor.cn", phone: "+86-570-801-1180", primary: true }],
+    factories: [{ name: "취저우 공장", id: "F-012", addr: "저장성 취저우시", regs: ["EU_BATTERY", "IRA_FEOC"], dest: "EU" }],
+    certs: [],
+    regs: ["EU_BATTERY", "IRA_FEOC", "CSDDD"], outPO: 2, inPO: 4,
+  },
+  "S-REF-001": {
+    nameEn: "Pohang / PIW Refining Works", nameKo: "리튬 정제", country: "AU", role: "리튬 정제", region: "호주 필바라",
+    status: "verified", riskLevel: "low", riskScore: 16, feoc: "eligible", carbon: 9.8, completeness: 92,
+    missing: [], highRisk: [],
+    contacts: [{ name: "Tom Bradley", role: "Plant Manager · Operations", email: "t.bradley@piw-refining.au", phone: "+61-8-9200-1200", primary: true }],
+    factories: [{ name: "필바라 정제소", id: "F-014", addr: "WA 필바라", regs: ["EU_BATTERY", "IRA"], dest: "BOTH" }],
+    certs: [{ name: "ISO 14001", status: "active" }],
+    regs: ["EU_BATTERY", "IRA"], outPO: 2, inPO: 0,
+  },
+  "S-REF-002": {
+    nameEn: "Ganzhou Rare Metals", nameKo: "간저우 코발트 정제", country: "CN", role: "코발트 정제", region: "장시성 간저우",
+    status: "pending", riskLevel: "high", riskScore: 68, feoc: "ineligible", carbon: 28.5, completeness: 48,
+    missing: ["FEOC 지분 공시", "원산지 증명", "환경 인증"], highRisk: ["FEOC 부적격 판정", "공급망 공개율 저조"],
+    contacts: [{ name: "Zhang Min", role: "Export Manager", email: "z.min@ganzhou-rare.cn", phone: "+86-797-820-1180", primary: true }],
+    factories: [{ name: "간저우 공장", id: "F-013", addr: "장시성 간저우시", regs: ["IRA_FEOC", "UFLPA"], dest: "US" }],
+    certs: [],
+    regs: ["IRA_FEOC", "UFLPA", "CSDDD"], outPO: 1, inPO: 1,
+  },
+  "S-MINE-001": {
+    nameEn: "Sulawesi / NORI Nickel Mine", nameKo: "술라웨시 니켈 광산", country: "ID", role: "니켈 광산", region: "술라웨시",
+    status: "review", riskLevel: "medium", riskScore: 44, feoc: "eligible", carbon: 45.8, completeness: 70,
+    missing: ["광권 좌표 정밀화", "환경 영향평가"], highRisk: ["고탄소 채굴 공정"],
+    contacts: [{ name: "Mary Reyes", role: "ESG Manager · Sustainability", email: "m.reyes@nori-mining.id", phone: "+62-21-8855-1100", primary: true }],
+    factories: [{ name: "술라웨시 광산", id: "F-016", addr: "Sulawesi", regs: ["CSDDD", "EUDR"], dest: "EU" }],
+    certs: [{ name: "ISO 14001", status: "active" }, { name: "RMI-CRT", status: "active" }],
+    regs: ["CSDDD", "EUDR", "EU_BATTERY"], outPO: 2, inPO: 0,
+  },
+  "S-MINE-002": {
+    nameEn: "Katanga Cobalt Mining", nameKo: "카탕가 코발트 광산", country: "CD", role: "코발트 광산", region: "카탕가",
+    status: "review", riskLevel: "critical", riskScore: 82, feoc: "under_review", carbon: 38.4, completeness: 42,
+    missing: ["아동노동 감사 보고서", "광권 증명", "인권 실사"], highRisk: ["아동노동 리스크 (DRC)", "분쟁광물 검증 필요"],
+    contacts: [{ name: "Jean-Paul Mwamba", role: "CEO · Executive", email: "jp.mwamba@kat-cobalt.cd", phone: "+243-99-555-1000", primary: true }],
+    factories: [{ name: "카탕가 광산", id: "F-017", addr: "Katanga, DRC", regs: ["CSDDD", "CONFLICT_MINERALS"], dest: "EU" }],
+    certs: [{ name: "RMI-CRT", status: "expiring_soon" }],
+    regs: ["CSDDD", "CONFLICT_MINERALS", "UFLPA"], outPO: 2, inPO: 0,
+  },
+  "S-MINE-003": {
+    nameEn: "Xinjiang Mineral Resources", nameKo: "신장 광물", country: "CN", role: "망간/리튬 광산", region: "신장 위구르 자치구",
+    status: "violation", riskLevel: "critical", riskScore: 95, feoc: "ineligible", carbon: 52.7, completeness: 30,
+    missing: ["UFLPA 반증 자료", "노동 감사", "원산지 증명"], highRisk: ["UFLPA 강제노동 위반 추정", "수입 보류 대상"],
+    contacts: [{ name: "—", role: "연락처 미등록", email: "", phone: "", primary: true }],
+    factories: [{ name: "신장 광산", id: "F-018", addr: "Xinjiang", regs: ["UFLPA"], dest: "—" }],
+    certs: [],
+    regs: ["UFLPA", "CSDDD"], outPO: 1, inPO: 0,
+  },
+};
+
+const REG_LABEL = {
+  EU_BATTERY: "EU 배터리법", IRA: "IRA", IRA_FEOC: "IRA/FEOC", UFLPA: "UFLPA",
+  CSDDD: "CSDDD", EUDR: "EUDR", CONFLICT_MINERALS: "분쟁광물",
+};
+
+// ── BOM 트리 (계층 구조 + 부모 대비 구성비) ─────────────────
+// comp = 부모 부품 100 대비 이 자재의 함량/중량 비율 (기준값, 버전이 덮어쓸 수 있음)
+const PARTS = [
+  { id: "PRT-001", code: "PACK-NCM811-100Ah", name: "NCM811 배터리 팩", tier: 1, parent: null,      comp: null },
+  { id: "PRT-002", code: "MOD-NCM811-12S",    name: "NCM811 모듈(12셀)", tier: 1, parent: "PRT-001", comp: 88 },
+  { id: "PRT-003", code: "BMS-V3-100Ah",      name: "BMS 컨트롤러",      tier: 1, parent: "PRT-001", comp: 12 },
+  { id: "PRT-004", code: "CELL-NCM811-5Ah",   name: "NCM811 셀(21700)",  tier: 2, parent: "PRT-002", comp: 100 },
+  { id: "PRT-005", code: "CAM-NCM811",        name: "NCM811 양극재",     tier: 3, parent: "PRT-004", comp: 42 },
+  { id: "PRT-006", code: "ANO-GRAPHITE",      name: "흑연 음극재",       tier: 3, parent: "PRT-004", comp: 24 },
+  { id: "PRT-007", code: "PRE-NCM",           name: "NCM 전구체",        tier: 4, parent: "PRT-005", comp: 92 },
+  { id: "PRT-008", code: "MIN-NI",            name: "니켈 원광",         tier: 5, parent: "PRT-007", comp: 80 },
+  { id: "PRT-009", code: "MIN-CO",            name: "코발트 원광",       tier: 5, parent: "PRT-007", comp: 10 },
+  { id: "PRT-011", code: "MIN-MN",            name: "망간 원광",         tier: 5, parent: "PRT-007", comp: 10 },
+  { id: "PRT-010", code: "MIN-LI",            name: "리튬 원광",         tier: 5, parent: "PRT-005", comp: 8 },
 ];
 
-// ─── 유틸 ────────────────────────────────────────────────────
-function truncate(s: string, max: number) {
-  return s.length > max ? s.slice(0, max - 1) + '…' : s;
-}
+// 버전별 구성비 오버라이드 (조성이 바뀌는 버전만 명시)
+// v2.0: 양극재 NCA 혼합 → Ni 비중↑ (Ni88/Co9/Mn3), 전구체 함량도 소폭 변동
+const COMP_OVERRIDE = {
+  "v2.0": {
+    "PRT-008": 88, // 니켈
+    "PRT-009": 9,  // 코발트
+    "PRT-011": 3,  // 망간
+  },
+};
 
-// 특정 노드에서 upstream/downstream 모두 추적
-function getConnectedIds(supplierId: string): Set<string> {
-  const connected = new Set<string>([supplierId]);
-  // upstream (나에게 공급하는)
-  const upQueue = [supplierId];
-  while (upQueue.length) {
-    const cur = upQueue.shift()!;
-    supplyEdges.filter(e => e.to === cur).forEach(e => {
-      if (!connected.has(e.from)) { connected.add(e.from); upQueue.push(e.from); }
-    });
-  }
-  // downstream (내가 공급하는)
-  const downQueue = [supplierId];
-  while (downQueue.length) {
-    const cur = downQueue.shift()!;
-    supplyEdges.filter(e => e.from === cur).forEach(e => {
-      if (!connected.has(e.to)) { connected.add(e.to); downQueue.push(e.to); }
-    });
-  }
-  return connected;
-}
+// ── 버전별 소싱 = BOM 노드(partId) → 협력사·공장·% (합 100) ──
+// 버전마다 자재 구성(노드 유무)·소싱 둘 다 다를 수 있음
+const SOURCING = {
+  // v1.0 — 초기: 양극재 단일소싱(POS 포항), 코발트 카탕가 단일
+  "v1.0": {
+    "PRT-005": [{ sup: "S-CAM-001", fac: "F-005", pct: 100 }],
+    "PRT-006": [{ sup: "S-ANO-001", fac: "F-010", pct: 100 }],
+    "PRT-007": [{ sup: "S-PRE-001", fac: "F-012", pct: 100 }],
+    "PRT-008": [{ sup: "S-MINE-001", fac: "F-016", pct: 100 }],
+    "PRT-009": [{ sup: "S-MINE-002", fac: "F-017", pct: 100 }],
+    "PRT-011": [{ sup: "S-MINE-003", fac: "F-018", pct: 100 }],
+    "PRT-010": [{ sup: "S-REF-001", fac: "F-014", pct: 100 }],
+  },
+  // v1.2 — 양극재 멀티소싱(POS 포항65/광양35), 코발트 카탕가 우세
+  "v1.2": {
+    "PRT-005": [
+      { sup: "S-CAM-001", fac: "F-005", pct: 65 },
+      { sup: "S-CAM-001", fac: "F-006", pct: 35 },
+    ],
+    "PRT-006": [{ sup: "S-ANO-001", fac: "F-010", pct: 100 }],
+    "PRT-007": [{ sup: "S-PRE-001", fac: "F-012", pct: 100 }],
+    "PRT-008": [{ sup: "S-MINE-001", fac: "F-016", pct: 100 }],
+    "PRT-009": [{ sup: "S-MINE-002", fac: "F-017", pct: 100 }],
+    "PRT-011": [{ sup: "S-MINE-003", fac: "F-018", pct: 100 }],
+    "PRT-010": [{ sup: "S-REF-001", fac: "F-014", pct: 100 }],
+  },
+  // v2.0 — 양극재 옌타이(NCA) 혼합 + 코발트 멀티(카탕가60/간저우40), 리튬 동일
+  "v2.0": {
+    "PRT-005": [
+      { sup: "S-CAM-001", fac: "F-005", pct: 50 },
+      { sup: "S-CAM-002", fac: "F-008", pct: 50 },
+    ],
+    "PRT-006": [{ sup: "S-ANO-001", fac: "F-010", pct: 100 }],
+    "PRT-007": [{ sup: "S-PRE-001", fac: "F-012", pct: 100 }],
+    "PRT-008": [{ sup: "S-MINE-001", fac: "F-016", pct: 100 }],
+    "PRT-009": [
+      { sup: "S-MINE-002", fac: "F-017", pct: 60 },
+      { sup: "S-REF-002",  fac: "F-017", pct: 40 },
+    ],
+    "PRT-011": [{ sup: "S-MINE-003", fac: "F-018", pct: 100 }],
+    "PRT-010": [{ sup: "S-REF-001", fac: "F-014", pct: 100 }],
+  },
+};
 
-// 제품 시리얼로 연결 협력사 추적
-function getProductSupplyChain(serial: string): Set<string> | null {
-  const inst = productInstances.find(i => i.serialNumber === serial);
-  if (!inst) return null;
-  const factory = getFactories('').find(() => false); // unused
-  // 생산 공장 → 제조사 supplierId 찾기
-  const { factories } = require('@/lib/supplier-detail-data');
-  const f = factories.find((ff: any) => ff.factoryId === inst.producedAtFactoryId);
-  if (!f) return null;
-  return getConnectedIds(f.supplierId);
-}
+// ── 제품 인스턴스: 단위기간 · 고객사 · BOM 버전 ──────────────
+const INSTANCES = [
+  { serial: "SN-2026-A1-082413", model: "Premium NCM811 100Ah", rootPart: "PRT-001", facId: "F-003", build: [{ fac: "F-003", pct: 100 }], period: "2026-Q2", customer: "Volkswagen AG", dest: "EU", bom: "v2.0", dppStatus: "issued",      dppId: "DPP-2026-04982" },
+  { serial: "SN-2026-A1-082319", model: "Premium NCM811 100Ah", rootPart: "PRT-001", facId: "F-003", build: [{ fac: "F-001", pct: 60 }, { fac: "F-003", pct: 40 }], period: "2026-Q2", customer: "Volkswagen AG", dest: "EU", bom: "v1.2", dppStatus: "issued",      dppId: "DPP-2026-04978" },
+  { serial: "SN-2026-A1-081002", model: "Premium NCM811 100Ah", rootPart: "PRT-001", facId: "F-003", build: [{ fac: "F-003", pct: 100 }], period: "2026-Q1", customer: "BMW Group",     dest: "EU", bom: "v1.0", dppStatus: "issued",      dppId: "DPP-2026-04102" },
+  { serial: "SN-2026-A1-082451", model: "Premium NCM811 100Ah", rootPart: "PRT-001", facId: "F-003", build: [{ fac: "F-003", pct: 100 }], period: "2026-Q2", customer: "Ford Motor",    dest: "US", bom: "v2.0", dppStatus: "in_progress" },
+  { serial: "SN-2026-A1-082341", model: "NCM622 90Ah",          rootPart: "PRT-001", facId: "F-002", build: [{ fac: "F-002", pct: 100 }], period: "2026-Q2", customer: "Ford Motor",    dest: "US", bom: "v1.2", dppStatus: "issued",      dppId: "DPP-2026-04979" },
+  { serial: "SN-2026-A2-082398", model: "Standard NCA 80Ah",    rootPart: "PRT-001", facId: "F-003", build: [{ fac: "F-001", pct: 50 }, { fac: "F-002", pct: 50 }], period: "2026-Q2", customer: "BMW Group",     dest: "EU", bom: "v2.0", dppStatus: "issued",      dppId: "DPP-2026-04981" },
+  { serial: "SN-2025-A1-079820", model: "Premium NCM811 100Ah", rootPart: "PRT-001", facId: "F-003", build: [{ fac: "F-003", pct: 100 }], period: "2025-Q4", customer: "BMW Group",     dest: "EU", bom: "v1.0", dppStatus: "issued",      dppId: "DPP-2025-09810" },
+];
 
-// ─── 검색 ────────────────────────────────────────────────────
-interface SearchHit {
-  supplierId: string;
-  label: string;
-  sub: string;
-  kind: 'supplier' | 'product';
-  serialNumber?: string;
-}
+const PERIODS = [...new Set(INSTANCES.map((i) => i.period))].sort().reverse();
+const CUSTOMERS = [...new Set(INSTANCES.map((i) => i.customer))].sort();
+const VERSIONS = Object.keys(SOURCING);
+const MODELS = [...new Set(INSTANCES.map((i) => i.model))].sort();
+// 제품(모델)이 실제로 가진 BOM 버전만
+const versionsOfModel = (model) =>
+  [...new Set(INSTANCES.filter((i) => i.model === model).map((i) => i.bom))]
+    .sort();
 
-function buildSearchIndex(): SearchHit[] {
-  const hits: SearchHit[] = [];
-  suppliers.forEach(s => {
-    const name = getSupplierName(s.id);
-    hits.push({
-      supplierId: s.id,
-      label: name ? `${name.nameEn}${name.nameKo ? ' / ' + name.nameKo : ''}` : s.name,
-      sub: `${s.id} · ${s.role} · ${s.country}`,
-      kind: 'supplier',
+const statusMeta = {
+  issued:      { label: "DPP 발급", color: C.accent, Icon: CheckCircle2 },
+  in_progress: { label: "발급 진행", color: C.amber, Icon: AlertTriangle },
+  pending:     { label: "대기", color: C.faint, Icon: AlertTriangle },
+};
+
+// 통합 검색 인덱스 (협력사 / 제품 시리얼 / 자재) — product-map buildSearchIndex 차용
+function buildSearchIndex() {
+  const hits = [];
+  Object.entries(SUP_DETAIL).forEach(([id, d]) => {
+    hits.push({ kind: "supplier", supId: id, label: `${d.nameEn} / ${d.nameKo}`, sub: `${id} · ${d.role} · ${d.country}` });
+  });
+  INSTANCES.forEach((i) => {
+    hits.push({ kind: "product", serial: i.serial, label: i.serial, sub: `${i.model} · ${i.period} · ${i.customer} · BOM ${i.bom}` });
+  });
+  PARTS.forEach((p) => {
+    Object.entries(SOURCING).forEach(([ver, map]) => {
+      (map[p.id] ?? []).forEach((s) => {
+        hits.push({ kind: "material", supId: s.sup, label: `${p.name} · ${SUP[s.sup] ?? s.sup}`, sub: `${p.code} · ${ver} · ${FAC[s.fac] ?? s.fac} · ${s.pct}%` });
+      });
     });
   });
-  productInstances.forEach(inst => {
-    const f = (() => {
-      try { const { factories } = require('@/lib/supplier-detail-data'); return factories.find((ff: any) => ff.factoryId === inst.producedAtFactoryId); } catch { return null; }
-    })();
-    hits.push({
-      supplierId: f?.supplierId ?? 'S-CELL-001',
-      label: inst.serialNumber,
-      sub: `${inst.modelName} · ${inst.destination} · ${inst.dppStatus === 'issued' ? 'DPP 완료' : '진행 중'}`,
-      kind: 'product',
-      serialNumber: inst.serialNumber,
-    });
-  });
-  return hits;
+  // 중복 라벨 정리
+  const seen = new Set();
+  return hits.filter((h) => { const k = h.kind + h.label + h.sub; if (seen.has(k)) return false; seen.add(k); return true; });
 }
+const SEARCH_INDEX = buildSearchIndex();
 
-// ─── 인라인 상세 패널 ────────────────────────────────────────
-function DetailPanel({
-  supplier, onClose,
-}: {
-  supplier: Supplier;
-  onClose: () => void;
-}) {
-  const [tab, setTab] = useState<PanelTab>('overview');
-  const name = getSupplierName(supplier.id);
-  const contacts = getContacts(supplier.id);
-  const factories = getFactories(supplier.id);
-  const certs = getCertifications(supplier.id);
-  const completeness = getCompleteness(supplier.id);
-  const risk = getRiskProfile(supplier.id);
-  const inPOs = getIncomingPOs(supplier.id);
-  const outPOs = getOutgoingPOs(supplier.id);
-  const primaryContact = contacts.find(c => c.isPrimary) ?? contacts[0];
+// ── 컴포넌트 ────────────────────────────────────────────────
+export default function ProductUnitSearch({ serialParam }: { serialParam?: string } = {}) {
+  const [mode, setMode] = useState("period"); // 'period' | 'product'
+  const [period, setPeriod] = useState("");
+  const [customer, setCustomer] = useState("");
+  const [model, setModel] = useState("");      // 제품 먼저
+  const [version, setVersion] = useState("");  // 그다음 버전
+  const [selected, setSelected] = useState(null);
+  const [navTarget, setNavTarget] = useState(null); // 클릭한 협력사 상세 팝업
 
-  const riskLevelMeta: Record<string, { label: string; color: string }> = {
-    low:      { label: '저위험',   color: 'text-emerald-600' },
-    medium:   { label: '중위험',   color: 'text-amber-600' },
-    high:     { label: '고위험',   color: 'text-red-600' },
-    critical: { label: '최고위험', color: 'text-red-700 font-bold' },
-  };
+  // 통합 검색바
+  const [query, setQuery] = useState("");
+  const [showDrop, setShowDrop] = useState(false);
 
-  const tabs: { key: PanelTab; label: string; count?: number }[] = [
-    { key: 'overview',    label: '개요' },
-    { key: 'contacts',    label: '담당자', count: contacts.length },
-    { key: 'factory',     label: '공장', count: factories.filter(f => f.factoryRole !== 'headquarters').length },
-    { key: 'risk',        label: '리스크' },
-    { key: 'regulations', label: '규제' },
-  ];
-
-  return (
-    <div className="flex flex-col h-full bg-white border-l border-ink-700 overflow-hidden">
-      {/* 헤더 */}
-      <div className="px-5 py-4 border-b border-ink-700 bg-ink-800/30 shrink-0">
-        <div className="flex items-start justify-between gap-3 mb-2">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <StatusDot status={supplier.status} />
-              <span className="text-[10px] num-mono text-ink-500">{supplier.id}</span>
-              <span className={clsx('text-[10px] font-semibold px-1.5 py-0.5 rounded-xs border',
-                supplier.country === 'CN' && 'bg-red-500/8 border-red-700/30 text-red-600',
-                supplier.country === 'KR' && 'bg-blue-500/8 border-blue-700/30 text-blue-600',
-                supplier.country === 'JP' && 'bg-purple-500/8 border-purple-700/30 text-purple-600',
-                !['CN','KR','JP'].includes(supplier.country) && 'bg-ink-700 border-ink-600 text-ink-400',
-              )}>
-                {supplier.country}
-              </span>
-            </div>
-            <h3 className="text-sm font-semibold text-ink-100 leading-tight">
-              {name?.nameEn ?? supplier.name}
-            </h3>
-            {name?.nameKo && (
-              <div className="text-xs text-ink-400 mt-0.5">{name.nameKo}</div>
-            )}
-          </div>
-          <button
-            onClick={onClose}
-            className="w-7 h-7 rounded-xs border border-ink-700 flex items-center justify-center text-ink-400 hover:text-ink-200 hover:border-ink-500 transition-colors shrink-0"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-        <div className="text-xs text-ink-400">{supplier.role} · {supplier.region}</div>
-      </div>
-
-      {/* 탭 */}
-      <div className="flex items-center gap-0.5 px-4 py-2 border-b border-ink-700 bg-ink-900/20 shrink-0 overflow-x-auto">
-        {tabs.map(t => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={clsx(
-              'flex items-center gap-1 px-2.5 py-1.5 rounded-xs text-[11px] font-medium transition-colors whitespace-nowrap',
-              tab === t.key
-                ? 'bg-accent-500/10 text-accent-600 border border-accent-700/30'
-                : 'text-ink-400 hover:text-ink-200'
-            )}
-          >
-            {t.label}
-            {t.count !== undefined && (
-              <span className="text-[9px] num-mono bg-ink-700 px-1 py-0.5 rounded-xs">{t.count}</span>
-            )}
-          </button>
-        ))}
-      </div>
-
-      {/* 탭 콘텐츠 */}
-      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-
-        {/* ── 개요 탭 ── */}
-        {tab === 'overview' && (
-          <>
-            {/* 완성도 */}
-            {completeness && (
-              <Section title="데이터 완성도">
-                <div className="flex items-center gap-3">
-                  <div className="flex-1 h-2 bg-ink-700 rounded-xs overflow-hidden">
-                    <div
-                      className={clsx('h-full transition-all rounded-xs',
-                        completeness.completionRate >= 90 ? 'bg-emerald-500' :
-                        completeness.completionRate >= 70 ? 'bg-amber-500' : 'bg-red-500'
-                      )}
-                      style={{ width: `${completeness.completionRate}%` }}
-                    />
-                  </div>
-                  <span className={clsx('text-sm font-semibold num-mono',
-                    completeness.completionRate >= 90 ? 'text-emerald-600' :
-                    completeness.completionRate >= 70 ? 'text-amber-600' : 'text-red-600'
-                  )}>
-                    {completeness.completionRate}%
-                  </span>
-                </div>
-                {completeness.missingFields.length > 0 && (
-                  <div className="mt-2 space-y-1">
-                    {completeness.missingFields.slice(0, 3).map(f => (
-                      <div key={f} className="flex items-center gap-1.5 text-[10px] text-amber-600">
-                        <AlertCircle className="w-3 h-3 shrink-0" />
-                        {f}
-                      </div>
-                    ))}
-                    {completeness.missingFields.length > 3 && (
-                      <div className="text-[10px] text-ink-500">+{completeness.missingFields.length - 3}개 더</div>
-                    )}
-                  </div>
-                )}
-              </Section>
-            )}
-
-            {/* 리스크 요약 */}
-            {risk && (
-              <Section title="리스크 요약">
-                <div className="flex items-center justify-between mb-2">
-                  <span className={clsx('text-sm font-semibold', riskLevelMeta[risk.riskLevel]?.color)}>
-                    {riskLevelMeta[risk.riskLevel]?.label}
-                  </span>
-                  <div className="flex items-center gap-1">
-                    <div className="h-2 w-24 bg-ink-700 rounded-xs overflow-hidden">
-                      <div
-                        className={clsx('h-full',
-                          risk.overallRiskScore >= 70 ? 'bg-red-500' :
-                          risk.overallRiskScore >= 40 ? 'bg-amber-500' : 'bg-emerald-500'
-                        )}
-                        style={{ width: `${risk.overallRiskScore}%` }}
-                      />
-                    </div>
-                    <span className="text-[11px] num-mono text-ink-400">{risk.overallRiskScore}/100</span>
-                  </div>
-                </div>
-                {risk.highRiskReasons.slice(0, 2).map(r => (
-                  <div key={r} className="flex items-start gap-1.5 text-[10px] text-red-600 mb-1">
-                    <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
-                    {r}
-                  </div>
-                ))}
-                {/* FEOC */}
-                <div className={clsx(
-                  'mt-2 px-2.5 py-1.5 rounded-xs border text-[11px] flex items-center justify-between',
-                  risk.feocStatus === 'eligible'     && 'border-emerald-700/30 bg-emerald-500/5 text-emerald-600',
-                  risk.feocStatus === 'ineligible'   && 'border-red-700/30 bg-red-500/5 text-red-600',
-                  risk.feocStatus === 'under_review' && 'border-amber-700/30 bg-amber-500/5 text-amber-600',
-                  risk.feocStatus === 'unknown'      && 'border-ink-700 bg-ink-800 text-ink-400',
-                )}>
-                  <span>FEOC</span>
-                  <span className="font-semibold">
-                    {risk.feocStatus === 'eligible' ? '적격' :
-                     risk.feocStatus === 'ineligible' ? '부적격' :
-                     risk.feocStatus === 'under_review' ? '검토 중' : '미파악'}
-                  </span>
-                </div>
-              </Section>
-            )}
-
-            {/* PO 요약 */}
-            <Section title="거래 현황">
-              <div className="flex gap-3">
-                <div className="flex-1 text-center py-2 rounded-xs border border-ink-700 bg-ink-900/30">
-                  <div className="text-lg font-semibold num-mono text-ink-100">{outPOs.length}</div>
-                  <div className="text-[10px] text-ink-500">납품 PO</div>
-                </div>
-                <div className="flex-1 text-center py-2 rounded-xs border border-ink-700 bg-ink-900/30">
-                  <div className="text-lg font-semibold num-mono text-ink-100">{inPOs.length}</div>
-                  <div className="text-[10px] text-ink-500">수신 PO</div>
-                </div>
-                <div className="flex-1 text-center py-2 rounded-xs border border-ink-700 bg-ink-900/30">
-                  <div className={clsx('text-lg font-semibold num-mono',
-                    supplier.carbonIntensity > 40 ? 'text-red-500' :
-                    supplier.carbonIntensity > 20 ? 'text-amber-500' : 'text-emerald-500'
-                  )}>
-                    {supplier.carbonIntensity}
-                  </div>
-                  <div className="text-[10px] text-ink-500">kgCO₂/kg</div>
-                </div>
-              </div>
-            </Section>
-
-            {/* 인증서 */}
-            {certs.length > 0 && (
-              <Section title={`인증서 (${certs.length}건)`}>
-                <div className="space-y-1">
-                  {certs.slice(0, 4).map(c => (
-                    <div key={c.certId} className={clsx(
-                      'flex items-center justify-between px-2.5 py-1.5 rounded-xs border text-[11px]',
-                      c.status === 'expired'       ? 'border-red-700/30 bg-red-500/5' :
-                      c.status === 'expiring_soon' ? 'border-amber-700/30 bg-amber-500/5' :
-                                                      'border-ink-700/60 bg-ink-900/30'
-                    )}>
-                      <span className="text-ink-200 font-medium">{c.certName}</span>
-                      <span className={clsx('num-mono text-[10px]',
-                        c.status === 'expired' ? 'text-red-500' :
-                        c.status === 'expiring_soon' ? 'text-amber-500' : 'text-emerald-600'
-                      )}>
-                        {c.status === 'expired' ? '만료' :
-                         c.status === 'expiring_soon' ? '만료임박' : '유효'}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </Section>
-            )}
-          </>
-        )}
-
-        {/* ── 담당자 탭 ── */}
-        {tab === 'contacts' && (
-          <Section title="담당자 연락처">
-            {contacts.length === 0 ? (
-              <div className="text-xs text-ink-500 text-center py-4">등록된 담당자가 없습니다</div>
-            ) : (
-              <div className="space-y-2">
-                {contacts.map(c => (
-                  <div key={c.contactId} className={clsx(
-                    'p-3 rounded-xs border',
-                    c.isPrimary ? 'border-accent-700/40 bg-accent-500/5' : 'border-ink-700/60 bg-ink-900/30'
-                  )}>
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div>
-                        <div className="text-xs font-semibold text-ink-100">{c.name}</div>
-                        <div className="text-[10px] text-ink-400">{c.role}{c.department ? ` · ${c.department}` : ''}</div>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        {c.isPrimary && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded-xs bg-accent-700/20 border border-accent-700/30 text-accent-500">주담당</span>
-                        )}
-                        {c.language && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded-xs bg-ink-700 text-ink-400">{c.language}</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <a href={`mailto:${c.email}`} className="flex items-center gap-1.5 text-[11px] text-blue-600 hover:text-blue-500">
-                        <Mail className="w-3 h-3" />
-                        {c.email}
-                      </a>
-                      <div className="flex items-center gap-1.5 text-[11px] text-ink-300">
-                        <Phone className="w-3 h-3 text-ink-500" />
-                        {c.phone}
-                      </div>
-                      {c.mobile && (
-                        <div className="flex items-center gap-1.5 text-[11px] text-ink-400">
-                          <Phone className="w-3 h-3 text-ink-600" />
-                          {c.mobile} <span className="text-[10px] text-ink-500">(모바일)</span>
-                        </div>
-                      )}
-                      {c.factoryId && (
-                        <div className="flex items-center gap-1.5 text-[10px] text-ink-500">
-                          <Factory className="w-3 h-3" />
-                          {factories.find(f => f.factoryId === c.factoryId)?.factoryName ?? c.factoryId}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Section>
-        )}
-
-        {/* ── 공장 탭 ── */}
-        {tab === 'factory' && (
-          <Section title="공장·사업장">
-            <div className="space-y-2">
-              {factories.map(f => (
-                <div key={f.factoryId} className={clsx(
-                  'p-3 rounded-xs border',
-                  f.factoryRole === 'headquarters' ? 'border-blue-700/30 bg-blue-500/5' : 'border-ink-700/60 bg-ink-900/30'
-                )}>
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <div>
-                      <div className="text-xs font-semibold text-ink-100">{f.factoryName}</div>
-                      {f.factoryNameEn && f.factoryNameEn !== f.factoryName && (
-                        <div className="text-[10px] text-ink-500">{f.factoryNameEn}</div>
-                      )}
-                    </div>
-                    <div className="flex gap-1 shrink-0 flex-wrap justify-end">
-                      {f.destination && (
-                        <span className={clsx('text-[9px] px-1.5 py-0.5 rounded-xs border font-semibold',
-                          f.destination === 'EU'   && 'bg-blue-500/10 border-blue-700/30 text-blue-600',
-                          f.destination === 'US'   && 'bg-amber-500/10 border-amber-700/30 text-amber-600',
-                          f.destination === 'BOTH' && 'bg-purple-500/10 border-purple-700/30 text-purple-600',
-                          f.destination === 'KR'   && 'bg-emerald-500/10 border-emerald-700/30 text-emerald-600',
-                        )}>
-                          {f.destination === 'BOTH' ? 'EU+US' : f.destination}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="space-y-1 text-[10px] text-ink-400">
-                    <div className="flex items-center gap-1.5">
-                      <MapPin className="w-3 h-3 text-ink-500 shrink-0" />
-                      <span className="truncate">{f.address}</span>
-                    </div>
-                    {f.monthlyCapacity && (
-                      <div className="num-mono text-ink-300">월 {f.monthlyCapacity}</div>
-                    )}
-                    {f.supplyRatioPercent !== undefined && (
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-1 bg-ink-700 rounded-xs overflow-hidden">
-                          <div className="h-full bg-accent-600 rounded-xs" style={{ width: `${f.supplyRatioPercent}%` }} />
-                        </div>
-                        <span className="num-mono text-accent-500 font-semibold">{f.supplyRatioPercent}%</span>
-                      </div>
-                    )}
-                  </div>
-                  {/* 적용 규제 미니 칩 */}
-                  {f.applicableRegulations && f.applicableRegulations.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {f.applicableRegulations.slice(0, 5).map(reg => {
-                        const m = regulationMeta[reg as Regulation];
-                        if (!m) return null;
-                        return (
-                          <span key={reg} className={clsx(
-                            'text-[8px] px-1.5 py-0.5 rounded-xs border font-medium',
-                            m.color === 'emerald' && 'border-emerald-700/30 text-emerald-600 bg-emerald-500/5',
-                            m.color === 'teal'    && 'border-teal-700/30 text-teal-600 bg-teal-500/5',
-                            m.color === 'amber'   && 'border-amber-700/30 text-amber-600 bg-amber-500/5',
-                            m.color === 'orange'  && 'border-orange-700/30 text-orange-600 bg-orange-500/5',
-                            m.color === 'blue'    && 'border-blue-700/30 text-blue-600 bg-blue-500/5',
-                            m.color === 'cyan'    && 'border-cyan-700/30 text-cyan-600 bg-cyan-500/5',
-                            m.color === 'purple'  && 'border-purple-700/30 text-purple-600 bg-purple-500/5',
-                            m.color === 'red'     && 'border-red-700/30 text-red-600 bg-red-500/5',
-                            m.color === 'violet'  && 'border-violet-700/30 text-violet-600 bg-violet-500/5',
-                            m.color === 'slate'   && 'border-slate-700/30 text-slate-600 bg-slate-500/5',
-                          )}>
-                            {m.label}
-                          </span>
-                        );
-                      })}
-                      {f.applicableRegulations.length > 5 && (
-                        <span className="text-[8px] text-ink-500">+{f.applicableRegulations.length - 5}</span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </Section>
-        )}
-
-        {/* ── 리스크 탭 ── */}
-        {tab === 'risk' && risk && (
-          <>
-            {/* 감사 이력 */}
-            <Section title="실사 이력">
-              {risk.auditRecords.length === 0 ? (
-                <div className="text-xs text-ink-500 text-center py-3">감사 기록 없음</div>
-              ) : (
-                <div className="space-y-2">
-                  {risk.auditRecords.map(a => (
-                    <div key={a.auditId} className={clsx(
-                      'p-3 rounded-xs border text-[11px]',
-                      a.result === 'pass'             && 'border-emerald-700/30 bg-emerald-500/5',
-                      a.result === 'conditional_pass' && 'border-amber-700/30 bg-amber-500/5',
-                      a.result === 'fail'             && 'border-red-700/30 bg-red-500/5',
-                      a.result === 'pending'          && 'border-ink-700 bg-ink-800',
-                    )}>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="font-semibold text-ink-100">{a.auditDate}</span>
-                        <span className={clsx('px-1.5 py-0.5 rounded-xs border text-[10px] font-semibold',
-                          a.result === 'pass'             && 'border-emerald-700/30 text-emerald-600',
-                          a.result === 'conditional_pass' && 'border-amber-700/30 text-amber-600',
-                          a.result === 'fail'             && 'border-red-700/30 text-red-600',
-                          a.result === 'pending'          && 'border-ink-700 text-ink-400',
-                        )}>
-                          {a.result === 'pass' ? '통과' : a.result === 'conditional_pass' ? '조건부통과' : a.result === 'fail' ? '불합격' : '대기'}
-                        </span>
-                      </div>
-                      <div className="text-ink-400 mb-1">{a.auditor} · {a.auditType === 'on_site' ? '현장' : a.auditType === 'remote' ? '원격' : a.auditType === 'document_review' ? '서류' : '제3자'}</div>
-                      {a.findings.slice(0, 2).map(f => (
-                        <div key={f} className="flex items-start gap-1 text-[10px] text-amber-600 mb-0.5">
-                          <AlertCircle className="w-3 h-3 shrink-0 mt-0.5" />
-                          {f}
-                        </div>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Section>
-
-            {/* 인권 이슈 */}
-            {risk.humanRightsIssues.length > 0 && (
-              <Section title={`인권 이슈 (${risk.humanRightsIssues.length}건)`}>
-                <div className="space-y-2">
-                  {risk.humanRightsIssues.map(hr => (
-                    <div key={hr.issueId} className={clsx(
-                      'p-2.5 rounded-xs border text-[11px]',
-                      hr.severity === 'critical' && 'border-red-700/40 bg-red-500/8',
-                      hr.severity === 'major'    && 'border-red-700/30 bg-red-500/5',
-                      hr.severity === 'minor'    && 'border-amber-700/30 bg-amber-500/5',
-                    )}>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className={clsx('font-semibold text-[10px] uppercase',
-                          hr.severity === 'critical' ? 'text-red-600' :
-                          hr.severity === 'major' ? 'text-red-500' : 'text-amber-600'
-                        )}>
-                          {hr.severity === 'critical' ? '심각' : hr.severity === 'major' ? '중요' : '경미'}
-                        </span>
-                        <span className={clsx('text-[10px] px-1.5 py-0.5 rounded-xs',
-                          hr.status === 'open' ? 'text-red-500 bg-red-500/10' :
-                          hr.status === 'in_remediation' ? 'text-amber-500 bg-amber-500/10' : 'text-emerald-500 bg-emerald-500/10'
-                        )}>
-                          {hr.status === 'open' ? '미해결' : hr.status === 'in_remediation' ? '개선중' : '해결'}
-                        </span>
-                      </div>
-                      <div className="text-ink-300 leading-relaxed">{hr.description}</div>
-                      <div className="text-[10px] text-ink-500 mt-1">출처: {hr.source} · {hr.detectedAt.slice(0, 10)}</div>
-                    </div>
-                  ))}
-                </div>
-              </Section>
-            )}
-
-            {/* 산업재해 */}
-            {risk.industrialAccidents.length > 0 && (
-              <Section title={`산업재해 (${risk.industrialAccidents.length}건)`}>
-                <div className="space-y-2">
-                  {risk.industrialAccidents.map(acc => (
-                    <div key={acc.accidentId} className={clsx(
-                      'p-2.5 rounded-xs border text-[11px]',
-                      acc.accidentType === 'fatality'       && 'border-red-700/40 bg-red-500/10',
-                      acc.accidentType === 'serious_injury' && 'border-red-700/30 bg-red-500/5',
-                      !['fatality','serious_injury'].includes(acc.accidentType) && 'border-amber-700/30 bg-amber-500/5',
-                    )}>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className={clsx('font-semibold',
-                          acc.accidentType === 'fatality' ? 'text-red-600' :
-                          acc.accidentType === 'serious_injury' ? 'text-red-500' : 'text-amber-600'
-                        )}>
-                          {acc.accidentType === 'fatality' ? '사망사고' :
-                           acc.accidentType === 'serious_injury' ? '중상사고' :
-                           acc.accidentType === 'minor_injury' ? '경상사고' :
-                           acc.accidentType === 'near_miss' ? '아차사고' : '환경사고'}
-                        </span>
-                        <span className="text-[10px] num-mono text-ink-400">{acc.accidentDate}</span>
-                      </div>
-                      <div className="text-ink-300">{acc.description}</div>
-                      {acc.ltifr !== undefined && (
-                        <div className="text-[10px] text-ink-500 mt-1 num-mono">LTIFR: {acc.ltifr}</div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </Section>
-            )}
-          </>
-        )}
-
-        {/* ── 규제 탭 ── */}
-        {tab === 'regulations' && (
-          <Section title="공장별 적용 규제">
-            {factories.filter(f => f.applicableRegulations && f.applicableRegulations.length > 0).map(f => (
-              <div key={f.factoryId} className="mb-4 last:mb-0">
-                <div className="text-[11px] font-semibold text-ink-300 mb-2 flex items-center gap-1.5">
-                  <Factory className="w-3 h-3 text-ink-500" />
-                  {f.factoryName}
-                  {f.destination && (
-                    <span className={clsx('text-[9px] px-1.5 py-0.5 rounded-xs border ml-1',
-                      f.destination === 'EU'   && 'border-blue-700/30 text-blue-600',
-                      f.destination === 'US'   && 'border-amber-700/30 text-amber-600',
-                      f.destination === 'BOTH' && 'border-purple-700/30 text-purple-600',
-                    )}>
-                      {f.destination === 'BOTH' ? 'EU+US' : f.destination}
-                    </span>
-                  )}
-                </div>
-                <div className="flex flex-wrap gap-1.5 mb-1">
-                  {f.applicableRegulations?.map(reg => {
-                    const m = regulationMeta[reg as Regulation];
-                    if (!m) return null;
-                    return (
-                      <div key={reg} className={clsx(
-                        'flex flex-col px-2 py-1.5 rounded-xs border',
-                        m.color === 'emerald' && 'border-emerald-700/30 bg-emerald-500/5',
-                        m.color === 'teal'    && 'border-teal-700/30 bg-teal-500/5',
-                        m.color === 'amber'   && 'border-amber-700/30 bg-amber-500/5',
-                        m.color === 'orange'  && 'border-orange-700/30 bg-orange-500/5',
-                        m.color === 'blue'    && 'border-blue-700/30 bg-blue-500/5',
-                        m.color === 'cyan'    && 'border-cyan-700/30 bg-cyan-500/5',
-                        m.color === 'purple'  && 'border-purple-700/30 bg-purple-500/5',
-                        m.color === 'red'     && 'border-red-700/30 bg-red-500/5',
-                        m.color === 'violet'  && 'border-violet-700/30 bg-violet-500/5',
-                        m.color === 'slate'   && 'border-slate-700/30 bg-slate-500/5',
-                      )}>
-                        <span className={clsx('text-[9px] font-bold',
-                          m.color === 'emerald' && 'text-emerald-600',
-                          m.color === 'teal'    && 'text-teal-600',
-                          m.color === 'amber'   && 'text-amber-600',
-                          m.color === 'orange'  && 'text-orange-600',
-                          m.color === 'blue'    && 'text-blue-600',
-                          m.color === 'cyan'    && 'text-cyan-600',
-                          m.color === 'purple'  && 'text-purple-600',
-                          m.color === 'red'     && 'text-red-600',
-                          m.color === 'violet'  && 'text-violet-600',
-                          m.color === 'slate'   && 'text-slate-600',
-                        )}>
-                          {m.label}
-                        </span>
-                        <span className="text-[8px] text-ink-500 mt-0.5">{m.region}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-                {f.hiddenRegulations && f.hiddenRegulations.length > 0 && (
-                  <div className="text-[9px] text-ink-500 flex items-center gap-1">
-                    <span>숨김:</span>
-                    {f.hiddenRegulations.map(r => regulationMeta[r as Regulation]?.label).join(', ')}
-                  </div>
-                )}
-              </div>
-            ))}
-          </Section>
-        )}
-
-      </div>
-
-      {/* 푸터 */}
-      <div className="border-t border-ink-700 px-5 py-3 flex items-center justify-between shrink-0 bg-ink-900/20">
-        <div className="text-[10px] text-ink-500 num-mono">마지막 검증 {supplier.lastVerified}</div>
-        <Link
-          href={`/suppliers/${supplier.id}`}
-          className="flex items-center gap-1 text-[11px] text-accent-500 hover:text-accent-400 transition-colors"
-        >
-          상세 관리 <ExternalLink className="w-3 h-3" />
-        </Link>
-      </div>
-    </div>
-  );
-}
-
-// ─── 섹션 래퍼 ───────────────────────────────────────────────
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <div className="text-[10px] uppercase tracking-wider text-ink-500 font-semibold mb-2">{title}</div>
-      {children}
-    </div>
-  );
-}
-
-function StatusDot({ status }: { status: SupplierStatus }) {
-  const colors: Record<SupplierStatus, string> = {
-    verified:  'bg-emerald-500',
-    pending:   'bg-blue-500',
-    review:    'bg-amber-500',
-    violation: 'bg-red-500',
-  };
-  return <div className={clsx('w-2 h-2 rounded-full shrink-0', colors[status])} />;
-}
-
-// ─── 인라인 SVG 맵 ───────────────────────────────────────────
-function InlineMap({
-  selectedId,
-  focusIds,
-  onSelect,
-}: {
-  selectedId: string | null;
-  focusIds: Set<string> | null;
-  onSelect: (s: Supplier) => void;
-}) {
-  const [hovered, setHovered] = useState<string | null>(null);
-
-  const isEdgeActive = (from: string, to: string) => {
-    const active = selectedId || hovered;
-    if (!active) return false;
-    return from === active || to === active;
-  };
-
-  return (
-    <div className="relative w-full select-none">
-      {/* 컬럼 헤더 */}
-      <div className="absolute inset-0 pointer-events-none z-10">
-        {columnHeaders.map(col => (
-          <div
-            key={col.tier}
-            className="absolute top-3 text-[10px] uppercase tracking-wider text-ink-400 font-medium"
-            style={{ left: col.left }}
-          >
-            <span className="num-mono text-accent-500 mr-1">T{col.tier}</span>· {col.label}
-          </div>
-        ))}
-      </div>
-
-      <svg viewBox="0 0 980 520" className="w-full" style={{ minHeight: 320 }}>
-        {/* 엣지 */}
-        {supplyEdges.map((edge, i) => {
-          const from = layout[edge.from];
-          const to   = layout[edge.to];
-          if (!from || !to) return null;
-
-          const active  = isEdgeActive(edge.from, edge.to);
-          const dimmed  = focusIds ? (!focusIds.has(edge.from) || !focusIds.has(edge.to)) : false;
-          const midX    = (from.x + to.x) / 2;
-          const path    = `M ${from.x + 68} ${from.y} C ${midX} ${from.y}, ${midX} ${to.y}, ${to.x - 68} ${to.y}`;
-
-          return (
-            <g key={i}>
-              <path
-                d={path} fill="none"
-                stroke={active ? '#14B8A6' : '#3F4957'}
-                strokeWidth={active ? 2 : 1}
-                opacity={dimmed ? 0.12 : (active ? 1 : 0.45)}
-              />
-              {active && (
-                <text x={midX} y={(from.y + to.y) / 2 - 7} fill="#5EEAD4" fontSize="9" textAnchor="middle" fontFamily="'JetBrains Mono', monospace">
-                  {edge.material} · {edge.volume}t
-                </text>
-              )}
-            </g>
-          );
-        })}
-
-        {/* 노드 */}
-        {suppliers.map(s => {
-          const pos = layout[s.id];
-          if (!pos) return null;
-
-          const c          = statusColors[s.status];
-          const isSelected = s.id === selectedId;
-          const isHov      = s.id === hovered;
-          const dimmed     = focusIds ? !focusIds.has(s.id) : false;
-          const opacity    = dimmed ? 0.18 : 1;
-
-          return (
-            <g
-              key={s.id}
-              transform={`translate(${pos.x - 68}, ${pos.y - 30})`}
-              style={{ cursor: 'pointer', opacity }}
-              onMouseEnter={() => setHovered(s.id)}
-              onMouseLeave={() => setHovered(null)}
-              onClick={() => !dimmed && onSelect(s)}
-            >
-              {/* 선택/호버 글로우 */}
-              {(isSelected || isHov) && (
-                <rect x={-4} y={-4} width={144} height={72} rx={3} fill={c.glow} />
-              )}
-              {/* 카드 */}
-              <rect width={136} height={64} rx={2} fill={c.fill} stroke={c.stroke} strokeWidth={isSelected ? 2 : 1} />
-
-              {/* Tier 배지 */}
-              <rect x={6} y={6} width={26} height={13} rx={2} fill="#1F2937" />
-              <text x={19} y={16} fill="#E5E7EB" fontSize="8" textAnchor="middle" fontWeight="700" fontFamily="'JetBrains Mono', monospace">
-                T{s.tier}
-              </text>
-
-              {/* 상태 점 */}
-              <circle cx={124} cy={13} r={3.5} fill={c.stroke} />
-
-              {/* 이름 */}
-              <text x={6} y={34} fill="#F3F4F6" fontSize="9.5" fontWeight="600">
-                {truncate(s.name, 17)}
-              </text>
-
-              {/* 역할 */}
-              <text x={6} y={46} fill={c.text} fontSize="8.5">
-                {truncate(s.role, 20)}
-              </text>
-
-              {/* 국가·지역 */}
-              <text x={6} y={57} fill="#9CA3AF" fontSize="8" fontFamily="'JetBrains Mono', monospace">
-                {s.country} · {truncate(s.region, 12)}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-
-      {/* 범례 */}
-      <div className="absolute bottom-2 right-2 flex items-center gap-3 text-[10px] text-ink-400 bg-white/80 backdrop-blur px-2.5 py-1.5 rounded-xs border border-ink-700">
-        <LegendDot color="#10B981" label="검증" />
-        <LegendDot color="#3B82F6" label="대기" />
-        <LegendDot color="#F59E0B" label="확인" />
-        <LegendDot color="#EF4444" label="위반" />
-      </div>
-    </div>
-  );
-}
-
-function LegendDot({ color, label }: { color: string; label: string }) {
-  return (
-    <div className="flex items-center gap-1">
-      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
-      {label}
-    </div>
-  );
-}
-
-// ─── 메인 페이지 ─────────────────────────────────────────────
-function ProductMapContent() {
-  const searchParams = useSearchParams();
-  const serialParam  = searchParams.get('serial');
-
-  const [query, setQuery]           = useState('');
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
-  const [focusIds, setFocusIds]     = useState<Set<string> | null>(null);
-
-  // 시리얼 파라미터로 진입 시 자동 포커스
-  useEffect(() => {
+  // serial URL 딥링크 진입 (제품 목록 → 이 페이지) — product-map serialParam 차용
+  React.useEffect(() => {
     if (!serialParam) return;
-    const inst = productInstances.find(i => i.serialNumber === serialParam);
-    if (!inst) return;
-    try {
-      const { factories: fList } = require('@/lib/supplier-detail-data');
-      const f = fList.find((ff: any) => ff.factoryId === inst.producedAtFactoryId);
-      if (!f) return;
-      const ids = getConnectedIds(f.supplierId);
-      setFocusIds(ids);
-      const s = suppliers.find(sup => sup.id === f.supplierId);
-      if (s) setSelectedSupplier(s);
-      setQuery(serialParam);
-    } catch {}
+    const inst = INSTANCES.find((i) => i.serial === serialParam);
+    if (inst) setSelected(inst);
   }, [serialParam]);
 
-  // 검색 인덱스 (메모이제이션)
-  const searchIndex = useMemo(() => buildSearchIndex(), []);
+  // 모델 바뀌면 버전 초기화 (버전은 제품에 종속)
+  React.useEffect(() => { setVersion(""); }, [model]);
 
-  const searchResults = useMemo(() => {
-    if (!query.trim()) return [];
-    const q = query.toLowerCase();
-    return searchIndex.filter(h =>
-      h.label.toLowerCase().includes(q) || h.sub.toLowerCase().includes(q)
-    ).slice(0, 8);
-  }, [query, searchIndex]);
+  // 자재 소싱 클릭 → 해당 협력사 상세 팝업 (전체 페이지가 필요하면 router.push로 교체)
+  const goSupplier = (supId, facId) => setNavTarget({ supId, facId });
 
-  const handleSearchSelect = useCallback((hit: SearchHit) => {
-    setQuery(hit.label);
-    setShowDropdown(false);
+  const searchHits = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return SEARCH_INDEX.filter((h) => h.label.toLowerCase().includes(q) || h.sub.toLowerCase().includes(q)).slice(0, 8);
+  }, [query]);
 
-    if (hit.kind === 'product' && hit.serialNumber) {
-      // 제품 시리얼 → 연결 공급망 포커스
-      const inst = productInstances.find(i => i.serialNumber === hit.serialNumber);
-      if (!inst) return;
-      try {
-        const { factories: fList } = require('@/lib/supplier-detail-data');
-        const f = fList.find((ff: any) => ff.factoryId === inst.producedAtFactoryId);
-        if (!f) return;
-        const ids = getConnectedIds(f.supplierId);
-        setFocusIds(ids);
-        const s = suppliers.find(sup => sup.id === f.supplierId);
-        if (s) setSelectedSupplier(s);
-      } catch {}
-    } else {
-      // 협력사 직접 선택
-      const s = suppliers.find(sup => sup.id === hit.supplierId);
-      if (s) {
-        setSelectedSupplier(s);
-        setFocusIds(getConnectedIds(s.id));
-      }
+  const onPickHit = (h) => {
+    setShowDrop(false);
+    setQuery(h.label);
+    if (h.kind === "product" && h.serial) {
+      const inst = INSTANCES.find((i) => i.serial === h.serial);
+      if (inst) setSelected(inst);
+    } else if (h.supId) {
+      setNavTarget({ supId: h.supId, facId: null });
     }
-  }, []);
+  };
 
-  const handleMapSelect = useCallback((s: Supplier) => {
-    setSelectedSupplier(prev => prev?.id === s.id ? null : s);
-    setFocusIds(getConnectedIds(s.id));
-    setQuery('');
-  }, []);
+  const results = useMemo(() => {
+    if (mode === "product") {
+      if (!model) return [];
+      return INSTANCES.filter((i) => i.model === model && (!version || i.bom === version));
+    }
+    return INSTANCES.filter(
+      (i) => (!period || i.period === period) && (!customer || i.customer === customer)
+    );
+  }, [mode, period, customer, model, version]);
 
-  const handleClearSearch = useCallback(() => {
-    setQuery('');
-    setFocusIds(null);
-    setSelectedSupplier(null);
-  }, []);
-
-  const focusedCount = focusIds?.size ?? suppliers.length;
+  if (selected) {
+    return (
+      <>
+        <InstanceDetail inst={selected} onBack={() => setSelected(null)} onNavigate={goSupplier} />
+        {navTarget && <SupplierDetailModal target={navTarget} onClose={() => setNavTarget(null)} />}
+      </>
+    );
+  }
 
   return (
-    <>
-      <PageHeader
-        title="제품별 공급망 맵"
-        description="제품 또는 협력사 검색 → 연결된 공급망이 맵에 즉시 반영"
-        badge="신규"
-        actions={
-          <Link href="/products" className="flex items-center gap-1.5 text-xs text-accent-600 hover:text-accent-500 transition-colors">
-            <Box className="w-3.5 h-3.5" />
-            제품 목록
-            <ArrowRight className="w-3 h-3" />
-          </Link>
-        }
-      />
+    <div style={{ fontFamily: '"Pretendard", "Noto Sans KR", system-ui, sans-serif', background: C.bg, color: C.text, minHeight: 600 }}>
+      {/* PageHeader (product-map 톤) */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "20px 24px", borderBottom: `1px solid ${C.line}` }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: C.text }}>제품별 공급망 맵</h2>
+            <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 4, color: C.accentLine, background: C.accentDim, border: `1px solid ${C.accent}40` }}>신규</span>
+          </div>
+          <p style={{ margin: "5px 0 0", fontSize: 12, color: C.faint }}>
+            제품·기간·고객사로 검색 → BOM 버전 전개 · 자재 클릭 시 협력사 상세
+          </p>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <a href="/supply-chain/request-map" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, color: C.sub, textDecoration: "none" }}>
+            <Send size={13} /> 입력 요청 현황 <ChevronRight size={12} />
+          </a>
+          <a href="/products" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, color: C.accentLine, textDecoration: "none" }}>
+            <Boxes size={13} /> 제품 목록 <ChevronRight size={12} />
+          </a>
+        </div>
+      </div>
 
-      {/* ── 검색바 (최상단 고정) ── */}
-      <div className="sticky top-[73px] z-20 bg-white/95 backdrop-blur border-b border-ink-700 px-8 py-3">
-        <div className="relative">
-          <div className={clsx(
-            'flex items-center gap-3 px-4 py-2.5 rounded-xs border transition-colors bg-ink-800/30',
-            showDropdown || query ? 'border-accent-600/60' : 'border-ink-700',
-          )}>
-            <Search className="w-4 h-4 text-ink-400 shrink-0" />
+      <div style={{ padding: 24 }}>
+        {/* 통합 검색바 (협력사 / 시리얼 / 자재 자동완성) */}
+        <div style={{ position: "relative", marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 4, border: `1px solid ${query ? C.accentLine : C.line}`, background: C.panel }}>
+            <Search size={16} color={C.faint} />
             <input
               value={query}
-              onChange={e => { setQuery(e.target.value); setShowDropdown(true); }}
-              onFocus={() => setShowDropdown(true)}
-              onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
-              placeholder="제품 시리얼번호 · 협력사명 · 국가 · 역할 검색 — 입력하면 맵이 즉시 반영됩니다"
-              className="flex-1 bg-transparent text-sm text-ink-200 placeholder:text-ink-500 outline-none"
+              onChange={(e) => { setQuery(e.target.value); setShowDrop(true); }}
+              onFocus={() => setShowDrop(true)}
+              placeholder="협력사 · 제품 시리얼 · 자재명 검색"
+              style={{ flex: 1, border: "none", outline: "none", background: "transparent", color: C.text, fontSize: 13 }}
             />
             {query && (
-              <button onClick={handleClearSearch} className="text-ink-500 hover:text-ink-300 transition-colors shrink-0">
-                <X className="w-4 h-4" />
-              </button>
-            )}
-            {focusIds && (
-              <div className="flex items-center gap-1.5 text-[11px] text-accent-500 border-l border-ink-700 pl-3 shrink-0">
-                <Layers className="w-3.5 h-3.5" />
-                <span className="num-mono">{focusedCount}</span>개 노드 포커스
-              </div>
+              <button onClick={() => { setQuery(""); setShowDrop(false); }} style={{ border: "none", background: "none", cursor: "pointer", color: C.faint }}><X size={14} /></button>
             )}
           </div>
-
-          {/* 검색 드롭다운 */}
-          {showDropdown && searchResults.length > 0 && (
-            <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-ink-700 rounded-xs shadow-lg z-30 overflow-hidden">
-              {searchResults.map((hit, i) => (
-                <button
-                  key={i}
-                  onMouseDown={() => handleSearchSelect(hit)}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-ink-800/30 transition-colors text-left border-b border-ink-700/40 last:border-0"
+          {showDrop && searchHits.length > 0 && (
+            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 20, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 4, boxShadow: "0 8px 24px rgba(15,23,42,0.08)", overflow: "hidden" }}>
+              {searchHits.map((h, idx) => (
+                <button key={idx} onClick={() => onPickHit(h)} style={{
+                  display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", padding: "9px 14px",
+                  border: "none", borderBottom: idx < searchHits.length - 1 ? `1px solid ${C.line}` : "none", background: "transparent", cursor: "pointer",
+                }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = C.panel)}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                 >
-                  <div className={clsx(
-                    'w-5 h-5 rounded-xs flex items-center justify-center shrink-0',
-                    hit.kind === 'product' ? 'bg-blue-500/10 text-blue-500' : 'bg-accent-500/10 text-accent-500',
-                  )}>
-                    {hit.kind === 'product' ? <Box className="w-3 h-3" /> : <Building2 className="w-3 h-3" />}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-xs font-medium text-ink-200 truncate">{hit.label}</div>
-                    <div className="text-[10px] text-ink-500 truncate">{hit.sub}</div>
-                  </div>
-                  <span className="text-[9px] text-ink-500 shrink-0">
-                    {hit.kind === 'product' ? '제품' : '협력사'}
+                  {h.kind === "product" ? <Package size={13} color={C.accent} /> : h.kind === "supplier" ? <Building2 size={13} color={C.blue} /> : <Layers size={13} color={C.violet} />}
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: C.text }}>{h.label}</span>
+                    <span style={{ display: "block", fontSize: 10.5, color: C.faint, fontFamily: "monospace" }}>{h.sub}</span>
                   </span>
                 </button>
               ))}
             </div>
           )}
         </div>
-      </div>
 
-      {/* ── 메인 레이아웃: 맵 + 사이드 패널 ── */}
-      <div className="flex h-[calc(100vh-144px)] overflow-hidden">
-
-        {/* 맵 영역 */}
-        <div className={clsx(
-          'flex-1 overflow-auto p-6 transition-all duration-300',
-          selectedSupplier ? 'pr-3' : ''
-        )}>
-          {/* 필터 칩 바 */}
-          <div className="flex items-center gap-2 mb-4 flex-wrap">
-            {focusIds && (
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xs border border-accent-700/40 bg-accent-500/8 text-[11px] text-accent-500">
-                <Layers className="w-3 h-3" />
-                {selectedSupplier ? (
-                  <span>
-                    <strong>{getSupplierName(selectedSupplier.id)?.shortNameEn ?? selectedSupplier.name}</strong> 연결 공급망
-                  </span>
-                ) : '포커스 활성'}
-                <button onClick={handleClearSearch} className="hover:text-accent-300 ml-1">
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            )}
-            {!focusIds && (
-              <div className="text-[11px] text-ink-500">
-                전체 {suppliers.length}개 협력사 · {supplyEdges.length}개 연결 — 노드를 클릭하거나 검색하면 해당 공급망이 강조됩니다
-              </div>
-            )}
-          </div>
-
-          {/* 맵 */}
-          <div className="rounded-sm border border-ink-700 bg-ink-800/20 overflow-hidden">
-            <InlineMap
-              selectedId={selectedSupplier?.id ?? null}
-              focusIds={focusIds}
-              onSelect={handleMapSelect}
-            />
-          </div>
-
-          {/* Tier 통계 하단 */}
-          <div className="mt-4 grid grid-cols-5 gap-2">
-            {([5,4,3,2,1] as Tier[]).map(tier => {
-              const count = suppliers.filter(s => s.tiers.includes(tier)).length;
-              return (
-                <div key={tier} className="text-center py-2 rounded-xs border border-ink-700/60 bg-ink-800/30">
-                  <div className="text-[10px] text-accent-500 num-mono font-semibold">T{tier}</div>
-                  <div className="text-sm font-semibold num-mono text-ink-200">{count}</div>
-                  <div className="text-[9px] text-ink-500">
-                    {['Pack','Cell','활물질','정제','광산'][5-tier]}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+        {/* 필터 모드 토글 */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          <ModeTab active={mode === "period"} onClick={() => setMode("period")} icon={Calendar} label="기간 · 고객사" />
+          <ModeTab active={mode === "product"} onClick={() => setMode("product")} icon={Package} label="제품 · BOM 버전" />
         </div>
 
-        {/* 인라인 상세 패널 (모달 없이) */}
-        {selectedSupplier && (
-          <div className="w-[360px] shrink-0 border-l border-ink-700 overflow-hidden">
-            <DetailPanel
-              supplier={selectedSupplier}
-              onClose={() => { setSelectedSupplier(null); setFocusIds(null); }}
-            />
+        {/* 필터 입력 */}
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", padding: 16, borderRadius: 4, border: `1px solid ${C.line}`, background: C.panel, marginBottom: 20 }}>
+          {mode === "period" ? (
+            <>
+              <SelectBox label="단위기간" icon={Calendar} value={period} onChange={setPeriod} options={PERIODS} placeholder="전체 기간" />
+              <SelectBox label="납품 고객사" icon={Building2} value={customer} onChange={setCustomer} options={CUSTOMERS} placeholder="전체 고객사" />
+            </>
+          ) : (
+            <>
+              <SelectBox label="제품 (모델)" icon={Package} value={model} onChange={setModel} options={MODELS} placeholder="제품 선택" />
+              <SelectBox
+                label="BOM 버전"
+                icon={GitBranch}
+                value={version}
+                onChange={setVersion}
+                options={model ? versionsOfModel(model) : []}
+                placeholder={model ? "전체 버전" : "먼저 제품 선택"}
+                disabled={!model}
+              />
+            </>
+          )}
+        </div>
+
+        {/* 결과 */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <span style={{ fontSize: 12, color: C.sub }}>
+            검색 결과 <b style={{ color: C.text }}>{results.length}</b>건
+          </span>
+        </div>
+
+        {results.length === 0 ? (
+          <div style={{ padding: 40, textAlign: "center", color: C.faint, fontSize: 13, border: `1px dashed ${C.line}`, borderRadius: 4 }}>
+            {mode === "product" && !model ? "제품을 먼저 선택하세요" : "조건에 맞는 제품이 없습니다"}
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {results.map((i) => (
+              <ResultRow key={i.serial} inst={i} onClick={() => setSelected(i)} />
+            ))}
           </div>
         )}
       </div>
-    </>
+
+      {navTarget && <SupplierDetailModal target={navTarget} onClose={() => setNavTarget(null)} />}
+    </div>
   );
 }
 
-export default function ProductMapPage() {
+function ResultRow({ inst, onClick }) {
+  const sm = statusMeta[inst.dppStatus] ?? statusMeta.pending;
   return (
-    <Suspense fallback={
-      <div className="flex items-center justify-center h-64 text-xs text-ink-500">로딩 중...</div>
-    }>
-      <ProductMapContent />
-    </Suspense>
+    <button onClick={onClick} style={{
+      display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, width: "100%", textAlign: "left",
+      padding: 16, borderRadius: 5, border: `1px solid ${C.line}`, background: C.panelSoft, cursor: "pointer", transition: "all .15s",
+    }}
+      onMouseEnter={(e) => (e.currentTarget.style.borderColor = C.accentLine)}
+      onMouseLeave={(e) => (e.currentTarget.style.borderColor = C.line)}
+    >
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Package size={15} color={C.accent} />
+          <span style={{ fontSize: 14, fontWeight: 700 }}>{inst.model}</span>
+          <Pill color={C.violet} icon={GitBranch}>BOM {inst.bom}</Pill>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 11, color: C.sub }}>
+          <Meta icon={Hash} mono>{inst.serial}</Meta>
+          <Meta icon={Calendar}>{inst.period}</Meta>
+          <Meta icon={Building2}>{inst.customer}</Meta>
+          <Meta icon={Truck}>{inst.dest} 납품</Meta>
+        </div>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, color: sm.color }}>
+          <sm.Icon size={13} /> {sm.label}
+        </span>
+        <ChevronRight size={16} color={C.faint} />
+      </div>
+    </button>
+  );
+}
+
+// ── 인스턴스 상세 + 버전 BOM 전개 ─────────────────────────
+function InstanceDetail({ inst, onBack, onNavigate }) {
+  const sm = statusMeta[inst.dppStatus] ?? statusMeta.pending;
+
+  // 버전별 자재 소싱 + 팩(PRT-001)의 자사 생산 소싱 합성
+  // 자사도 "언제(period)·어느 공장·몇 %" 생산했는지 표시 (build 배열)
+  const sourcing = useMemo(() => {
+    const base = { ...(SOURCING[inst.bom] ?? {}) };
+    const build = inst.build ?? [{ fac: inst.facId, pct: 100 }];
+    base[inst.rootPart] = build.map((b) => ({ sup: "S-CELL-001", fac: b.fac, pct: b.pct, self: true }));
+    return base;
+  }, [inst.bom, inst.serial]);
+
+  // 이 버전에 실제 존재하는 노드만 (자재 구성이 버전마다 다를 수 있음)
+  const activeParts = useMemo(() => {
+    const present = new Set(Object.keys(sourcing));
+    // 소싱 명시 노드 + 그 조상(구조 노드)까지 포함
+    const keep = new Set(present);
+    let added = true;
+    while (added) {
+      added = false;
+      PARTS.forEach((p) => {
+        if (keep.has(p.id) && p.parent && !keep.has(p.parent)) { keep.add(p.parent); added = true; }
+      });
+    }
+    return PARTS.filter((p) => keep.has(p.id));
+  }, [sourcing]);
+
+  // 버전별 구성비 오버라이드 적용
+  const compOf = (p) => {
+    const ov = COMP_OVERRIDE[inst.bom]?.[p.id];
+    return ov != null ? ov : p.comp;
+  };
+  const childrenOf = (id) => activeParts.filter((p) => p.parent === id);
+  const root = activeParts.find((p) => p.parent === null);
+
+  return (
+    <div style={{ fontFamily: "system-ui, -apple-system, sans-serif", background: C.bg, color: C.text, borderRadius: 6, padding: 24, minHeight: 600 }}>
+      <button onClick={onBack} style={{ display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 18, padding: "7px 13px", borderRadius: 4, border: `1px solid ${C.line}`, background: C.panelSoft, color: C.sub, fontSize: 12, cursor: "pointer" }}>
+        <ArrowLeft size={14} /> 검색 결과로
+      </button>
+
+      {/* 제품 식별 카드 */}
+      <div style={{ padding: 20, borderRadius: 6, border: `1px solid ${C.lineSoft}`, background: C.panelSoft, marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+          <Package size={18} color={C.accent} />
+          <h2 style={{ margin: 0, fontSize: 19, fontWeight: 800 }}>{inst.model}</h2>
+          <Pill color={C.violet} icon={GitBranch}>BOM {inst.bom}</Pill>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: sm.color, marginLeft: "auto" }}>
+            <sm.Icon size={14} /> {sm.label}{inst.dppId ? ` · ${inst.dppId}` : ""}
+          </span>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
+          <KV icon={Hash}      label="시리얼" value={inst.serial} mono />
+          <KV icon={Calendar}  label="단위기간" value={inst.period} />
+          <KV icon={Building2} label="납품 고객사" value={inst.customer} />
+          <KV icon={Truck}     label="납품처" value={`${inst.dest}`} />
+          <KV icon={Factory}   label="생산 공장" value={inst.facId} />
+        </div>
+      </div>
+
+      {/* BOM 전개 헤더 */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+        <Layers size={16} color={C.accent} />
+        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>BOM 기준정보 전개 · {inst.bom}</h3>
+      </div>
+      <p style={{ margin: "0 0 14px", fontSize: 11.5, color: C.faint }}>
+        구성비 = 상위 부품 대비 함량 % · 소싱 = 그 자재를 어느 협력사·공장에서 몇 %씩 조달했는지 (버전 고정)
+      </p>
+
+      {/* BOM 트리 */}
+      <div style={{ border: `1px solid ${C.lineSoft}`, borderRadius: 6, background: C.panelSoft, padding: 8 }}>
+        {root && <BomNode node={root} depth={0} childrenOf={childrenOf} sourcing={sourcing} compOf={compOf} onNavigate={onNavigate} period={inst.period} />}
+      </div>
+    </div>
+  );
+}
+
+function BomNode({ node, depth, childrenOf, sourcing, compOf, onNavigate, period }) {
+  const [open, setOpen] = useState(true);
+  const kids = childrenOf(node.id);
+  const src = sourcing[node.id];
+  const hasKids = kids.length > 0;
+  const comp = compOf(node);
+
+  // 광물(T5) 형제들의 조성 — 부모 전구체/양극재 안에서의 함량 비교
+  const mineralKids = kids.filter((k) => k.tier === 5);
+  const compColor = (v) => (v >= 50 ? C.accent : v >= 15 ? C.blue : C.amber);
+
+  return (
+    <div>
+      <div style={{
+        display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", marginLeft: depth * 20,
+        borderRadius: 4, background: depth === 0 ? C.accentDim : "transparent",
+        borderLeft: depth > 0 ? `2px solid ${C.lineSoft}` : "none",
+      }}>
+        <button onClick={() => hasKids && setOpen(!open)} style={{ background: "none", border: "none", cursor: hasKids ? "pointer" : "default", color: C.faint, padding: 0, marginTop: 2, width: 16 }}>
+          {hasKids ? (open ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : <span style={{ display: "inline-block", width: 14 }} />}
+        </button>
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{node.name}</span>
+            <span style={{ fontSize: 10, fontFamily: "monospace", color: C.faint }}>{node.code}</span>
+            <Pill color={C.blue} small>T{node.tier}</Pill>
+            {comp != null && (
+              <Pill color={C.violet} small icon={Percent}>상위 대비 {comp}%</Pill>
+            )}
+          </div>
+
+          {/* 광물 구성비 — 자식이 광물일 때 부모 노드에 조성 막대 표시 */}
+          {mineralKids.length > 0 && (
+            <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 4, background: C.bg, border: `1px solid ${C.lineSoft}` }}>
+              <div style={{ fontSize: 9.5, letterSpacing: 0.5, textTransform: "uppercase", color: C.faint, marginBottom: 6 }}>
+                광물 구성비 (이 부품 100 기준)
+              </div>
+              {/* 누적 막대 */}
+              <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", marginBottom: 7 }}>
+                {mineralKids.map((m) => (
+                  <span key={m.id} title={`${m.name} ${compOf(m)}%`} style={{ width: `${compOf(m)}%`, background: compColor(compOf(m)) }} />
+                ))}
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                {mineralKids.map((m) => (
+                  <span key={m.id} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, color: C.sub }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 2, background: compColor(compOf(m)) }} />
+                    {m.name} <b style={{ fontFamily: "monospace", color: compColor(compOf(m)) }}>{compOf(m)}%</b>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 소싱 행 — 자사 생산 / 광산(운영사 보고) / 일반 협력사 구분 */}
+          {src && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+              {src.map((s, idx) => {
+                const isSelf = s.self || s.sup === "S-CELL-001";
+                const mineOp = MINE_OPERATORS[s.sup]; // 광산이면 운영사 정보
+                const tone = isSelf ? C.accentLine : mineOp ? C.amber : C.blue;
+                const displayName = isSelf
+                  ? "한양셀 (자사 생산)"
+                  : mineOp
+                  ? mineOp.operator
+                  : (SUP[s.sup] ?? s.sup);
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => onNavigate?.(s.sup, s.fac)}
+                    title={isSelf ? "자사 생산 상세" : mineOp ? `${mineOp.operator} (데이터 보고 주체) 상세` : `${SUP[s.sup] ?? s.sup} 상세`}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 11, width: "100%", textAlign: "left",
+                      padding: "6px 8px", borderRadius: 4, background: isSelf ? C.accentDim : "transparent",
+                      border: `1px solid ${isSelf ? C.accent + "40" : C.lineSoft}`,
+                      color: C.sub, cursor: "pointer", transition: "all .15s",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = isSelf ? C.accentDim : C.blueDim; e.currentTarget.style.borderColor = tone; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = isSelf ? C.accentDim : "transparent"; e.currentTarget.style.borderColor = isSelf ? C.accent + "40" : C.lineSoft; }}
+                  >
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: tone, fontWeight: 600, minWidth: 200 }}>
+                      <Building2 size={12} /> {displayName}
+                    </span>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: C.sub }}>
+                      <MapPin size={12} color={C.faint} /> {FAC[s.fac] ?? s.fac}
+                    </span>
+                    {/* 자사: 생산기간 / 광산: 데이터 보고 주체 뱃지 */}
+                    {isSelf && period && (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 9.5, color: C.accentLine }}>
+                        <Calendar size={10} /> {period} 생산
+                      </span>
+                    )}
+                    {mineOp && (
+                      <span style={{ fontSize: 9, fontWeight: 600, padding: "1px 6px", borderRadius: 4, color: C.amber, background: C.amber + "14", border: `1px solid ${C.amber}40` }}>
+                        데이터 보고 주체
+                      </span>
+                    )}
+                    <span style={{ display: "flex", alignItems: "center", gap: 7, marginLeft: "auto" }}>
+                      <span style={{ fontSize: 9, color: C.faint }}>{isSelf ? "생산" : "조달"}</span>
+                      <span style={{ width: 80, height: 6, borderRadius: 3, background: C.line, overflow: "hidden" }}>
+                        <span style={{ display: "block", height: "100%", width: `${s.pct}%`, background: s.pct >= 60 ? C.accent : tone }} />
+                      </span>
+                      <span style={{ fontFamily: "monospace", fontWeight: 700, color: s.pct >= 60 ? C.accent : tone, minWidth: 36, textAlign: "right" }}>{s.pct}%</span>
+                      <ChevronRight size={13} color={C.faint} />
+                    </span>
+                  </button>
+                );
+              })}
+              {src.length > 1 && (
+                <span style={{ fontSize: 10, color: C.faint, alignSelf: "flex-end" }}>
+                  {(src[0].self || src[0].sup === "S-CELL-001") ? `${src.length}개 공장 분할 생산` : `${src.length}개 소스 멀티소싱`} · 합 {src.reduce((a, b) => a + b.pct, 0)}%
+                </span>
+              )}
+              {/* 광산 운영사 안내 (해당 노드에 광산이 있을 때) */}
+              {src.some((s) => MINE_OPERATORS[s.sup]) && (
+                <span style={{ fontSize: 9.5, color: C.faint, alignSelf: "flex-start", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  <AlertCircle size={10} /> 광산은 자체 사이트가 없어 운영사가 원산지·실사 데이터를 대리 보고합니다
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {open && kids.map((k) => (
+        <BomNode key={k.id} node={k} depth={depth + 1} childrenOf={childrenOf} sourcing={sourcing} compOf={compOf} onNavigate={onNavigate} period={period} />
+      ))}
+    </div>
+  );
+}
+
+// ── 협력사 상세 팝업 (기존 product-map DetailPanel → 모달) ──
+const RISK_META = {
+  low:      { label: "저위험", color: C.accent },
+  medium:   { label: "중위험", color: C.amber },
+  high:     { label: "고위험", color: C.red },
+  critical: { label: "최고위험", color: C.red },
+};
+const FEOC_META = {
+  eligible:     { label: "적격", color: C.accent },
+  ineligible:   { label: "부적격", color: C.red },
+  under_review: { label: "검토 중", color: C.amber },
+  unknown:      { label: "미파악", color: C.faint },
+};
+const COUNTRY_COLOR = { CN: C.red, KR: C.blue, JP: C.violet };
+
+function SupplierDetailModal({ target, onClose }) {
+  const [tab, setTab] = useState("overview");
+  const d = SUP_DETAIL[target.supId];
+  if (!d) return null;
+  const rm = RISK_META[d.riskLevel];
+  const fm = FEOC_META[d.feoc];
+  const cc = COUNTRY_COLOR[d.country] ?? C.faint;
+  const mineOp = MINE_OPERATORS[target.supId]; // 광산이면 운영사(데이터 보고 주체)
+
+  const tabs = [
+    { key: "overview", label: "개요", icon: Activity },
+    { key: "contacts", label: "담당자", icon: Users },
+    { key: "factory", label: "공장", icon: Factory },
+    { key: "risk", label: "리스크", icon: ShieldAlert },
+    { key: "regs", label: "규제", icon: ScrollText },
+  ];
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "#000000aa", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        width: "100%", maxWidth: 480, maxHeight: "88vh", display: "flex", flexDirection: "column",
+        background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, overflow: "hidden",
+      }}>
+        {/* 헤더 */}
+        <div style={{ padding: "16px 18px", borderBottom: `1px solid ${C.line}`, background: C.panelSoft, flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6, flexWrap: "wrap" }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: d.status === "verified" ? C.accent : d.status === "violation" ? C.red : d.status === "review" ? C.amber : C.blue }} />
+                <span style={{ fontSize: 10, fontFamily: "monospace", color: C.faint }}>{target.supId}</span>
+                <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 4, color: cc, background: `${cc}1A`, border: `1px solid ${cc}40` }}>{d.country}</span>
+                {d.isSelf && <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 4, color: C.accentLine, background: C.accentDim, border: `1px solid ${C.accent}40` }}>자사</span>}
+              </div>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: C.text }}>{d.nameEn}</h3>
+              <div style={{ fontSize: 12, color: C.sub, marginTop: 2 }}>{d.nameKo} · {d.role} · {d.region}</div>
+              {mineOp && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, padding: "6px 10px", borderRadius: 4, background: C.amber + "12", border: `1px solid ${C.amber}40` }}>
+                  <AlertCircle size={13} color={C.amber} style={{ flexShrink: 0 }} />
+                  <span style={{ fontSize: 10.5, color: C.amber, lineHeight: 1.4 }}>
+                    데이터 보고 주체: <b>{mineOp.operator}</b> · 광산 자체 사이트 없음, 운영사가 원산지·실사 데이터 대리 제출
+                  </span>
+                </div>
+              )}
+            </div>
+            <button onClick={onClose} style={{ width: 28, height: 28, borderRadius: 4, border: `1px solid ${C.line}`, background: "transparent", color: C.faint, cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}><X size={15} /></button>
+          </div>
+        </div>
+
+        {/* 탭 */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, padding: "8px 14px", borderBottom: `1px solid ${C.line}`, background: C.bg, flexShrink: 0 }}>
+          {tabs.map((t) => (
+            <button key={t.key} onClick={() => setTab(t.key)} style={{
+              display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer",
+              border: `1px solid ${tab === t.key ? C.accentLine : "transparent"}`, background: tab === t.key ? C.accentDim : "transparent", color: tab === t.key ? C.accent : C.sub,
+            }}>
+              <t.icon size={12} /> {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* 콘텐츠 */}
+        <div style={{ flex: 1, overflowY: "auto", padding: 18, display: "flex", flexDirection: "column", gap: 16 }}>
+          {tab === "overview" && (
+            <>
+              <PSection title="데이터 완성도">
+                <Bar pct={d.completeness} />
+                {d.missing.slice(0, 3).map((m) => (
+                  <div key={m} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10.5, color: C.amber, marginTop: 5 }}>
+                    <AlertCircle size={11} /> {m}
+                  </div>
+                ))}
+              </PSection>
+              <PSection title="리스크 요약">
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: rm.color }}>{rm.label}</span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ width: 90, height: 6, background: C.line, borderRadius: 3, overflow: "hidden" }}>
+                      <span style={{ display: "block", height: "100%", width: `${d.riskScore}%`, background: rm.color }} />
+                    </span>
+                    <span style={{ fontSize: 11, fontFamily: "monospace", color: C.sub }}>{d.riskScore}/100</span>
+                  </span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10, padding: "6px 10px", borderRadius: 6, border: `1px solid ${fm.color}40`, background: `${fm.color}10` }}>
+                  <span style={{ fontSize: 11, color: C.sub }}>FEOC</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: fm.color }}>{fm.label}</span>
+                </div>
+              </PSection>
+              <PSection title="거래 현황">
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Stat value={d.outPO} label="납품 PO" />
+                  <Stat value={d.inPO} label="수신 PO" />
+                  <Stat value={d.carbon} label="kgCO₂/kg" color={d.carbon > 40 ? C.red : d.carbon > 20 ? C.amber : C.accent} />
+                </div>
+              </PSection>
+              {d.certs.length > 0 && (
+                <PSection title={`인증서 (${d.certs.length}건)`}>
+                  {d.certs.map((c) => (
+                    <div key={c.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", borderRadius: 6, marginTop: 4, border: `1px solid ${c.status === "expiring_soon" ? C.amber + "40" : C.lineSoft}`, background: c.status === "expiring_soon" ? C.amber + "10" : C.bg }}>
+                      <span style={{ fontSize: 11.5, color: C.text }}>{c.name}</span>
+                      <span style={{ fontSize: 10, fontFamily: "monospace", color: c.status === "active" ? C.accent : C.amber }}>{c.status === "active" ? "유효" : "만료임박"}</span>
+                    </div>
+                  ))}
+                </PSection>
+              )}
+            </>
+          )}
+
+          {tab === "contacts" && (
+            <PSection title="담당자 연락처">
+              {d.contacts.map((c, i) => (
+                <div key={i} style={{ padding: 12, borderRadius: 4, marginTop: i ? 8 : 0, border: `1px solid ${c.primary ? C.accentLine : C.lineSoft}`, background: c.primary ? C.accentDim : C.bg }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{c.name}</span>
+                    {c.primary && <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 4, color: C.accent, background: C.accentDim }}>주담당</span>}
+                  </div>
+                  <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>{c.role}</div>
+                  {c.email && <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: C.blue, marginTop: 6 }}><Mail size={12} /> {c.email}</div>}
+                  {c.phone && <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: C.sub, marginTop: 3 }}><Phone size={12} color={C.faint} /> {c.phone}</div>}
+                </div>
+              ))}
+            </PSection>
+          )}
+
+          {tab === "factory" && (
+            <PSection title="공장·사업장">
+              {d.factories.map((f) => (
+                <div key={f.id} style={{ padding: 12, borderRadius: 4, marginTop: 8, border: `1px solid ${C.lineSoft}`, background: C.bg }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{f.name}</span>
+                    <span style={{ fontSize: 10, fontFamily: "monospace", color: C.faint }}>{f.id}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: C.sub, marginTop: 4 }}><MapPin size={12} color={C.faint} /> {f.addr}</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 8 }}>
+                    {f.regs.map((r) => <RegPill key={r} reg={r} />)}
+                    <span style={{ fontSize: 9.5, padding: "2px 7px", borderRadius: 4, color: C.blue, background: C.blueDim, border: `1px solid ${C.blue}40` }}>{f.dest} 납품</span>
+                  </div>
+                </div>
+              ))}
+            </PSection>
+          )}
+
+          {tab === "risk" && (
+            <>
+              <PSection title="종합 리스크">
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                  <span style={{ fontSize: 15, fontWeight: 800, color: rm.color }}>{rm.label}</span>
+                  <span style={{ fontSize: 13, fontFamily: "monospace", color: C.sub }}>{d.riskScore}/100</span>
+                </div>
+                <Bar pct={d.riskScore} danger />
+              </PSection>
+              {d.highRisk.length > 0 && (
+                <PSection title="주요 리스크 사유">
+                  {d.highRisk.map((r) => (
+                    <div key={r} style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 11.5, color: C.red, marginTop: 5 }}>
+                      <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1 }} /> {r}
+                    </div>
+                  ))}
+                </PSection>
+              )}
+              <PSection title="FEOC 자격">
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderRadius: 4, border: `1px solid ${fm.color}40`, background: `${fm.color}10` }}>
+                  <span style={{ fontSize: 12, color: C.sub }}>IRA/FEOC 판정</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: fm.color }}>{fm.label}</span>
+                </div>
+              </PSection>
+            </>
+          )}
+
+          {tab === "regs" && (
+            <PSection title="적용 규제">
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {d.regs.map((r) => <RegPill key={r} reg={r} big />)}
+              </div>
+            </PSection>
+          )}
+        </div>
+
+        {/* 푸터: 실제 앱에선 전체 페이지로 */}
+        <div style={{ padding: 14, borderTop: `1px solid ${C.line}`, background: C.panelSoft, flexShrink: 0 }}>
+          <button onClick={onClose} style={{
+            width: "100%", padding: "10px", borderRadius: 4, border: `1px solid ${C.line}`, background: C.bg, color: C.sub,
+            fontSize: 12, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+          }}>
+            <ChevronRight size={14} /> 협력사 전체 페이지 열기 (/suppliers/{target.supId})
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PSection({ title, children }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10.5, letterSpacing: 0.5, textTransform: "uppercase", color: C.faint, marginBottom: 8, fontWeight: 600 }}>{title}</div>
+      {children}
+    </div>
+  );
+}
+function Bar({ pct, danger }: any) {
+  const col = danger
+    ? (pct >= 70 ? C.red : pct >= 40 ? C.amber : C.accent)
+    : (pct >= 90 ? C.accent : pct >= 70 ? C.amber : C.red);
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <span style={{ flex: 1, height: 7, background: C.line, borderRadius: 4, overflow: "hidden" }}>
+        <span style={{ display: "block", height: "100%", width: `${pct}%`, background: col }} />
+      </span>
+      <span style={{ fontSize: 12, fontFamily: "monospace", fontWeight: 700, color: col }}>{pct}%</span>
+    </div>
+  );
+}
+function Stat({ value, label, color }: any) {
+  return (
+    <div style={{ flex: 1, textAlign: "center", padding: "8px 4px", borderRadius: 4, border: `1px solid ${C.lineSoft}`, background: C.bg }}>
+      <div style={{ fontSize: 17, fontWeight: 800, fontFamily: "monospace", color: color ?? C.text }}>{value}</div>
+      <div style={{ fontSize: 9.5, color: C.faint, marginTop: 2 }}>{label}</div>
+    </div>
+  );
+}
+function RegPill({ reg, big }: any) {
+  return (
+    <span style={{ fontSize: big ? 11 : 9.5, fontWeight: 600, padding: big ? "4px 10px" : "2px 7px", borderRadius: 5, color: C.violet, background: `${C.violet}1A`, border: `1px solid ${C.violet}40` }}>
+      {REG_LABEL[reg] ?? reg}
+    </span>
+  );
+}
+
+// ── 작은 UI 유틸 ───────────────────────────────────────────
+function ModeTab({ active, onClick, icon: Icon, label }) {
+  return (
+    <button onClick={onClick} style={{
+      display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 15px", borderRadius: 5, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+      border: `1px solid ${active ? C.accentLine : C.line}`, background: active ? C.accentDim : "transparent", color: active ? C.accent : C.sub,
+    }}>
+      <Icon size={14} /> {label}
+    </button>
+  );
+}
+function SelectBox({ label, icon: Icon, value, onChange, options, placeholder, disabled }: any) {
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 200, opacity: disabled ? 0.55 : 1 }}>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10.5, letterSpacing: 0.5, textTransform: "uppercase", color: C.faint }}>
+        <Icon size={12} /> {label}
+      </span>
+      <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} style={{
+        padding: "10px 12px", borderRadius: 4, border: `1px solid ${value ? C.accentLine : C.line}`,
+        background: C.bg, color: value ? C.text : C.faint, fontSize: 13, outline: "none", cursor: disabled ? "not-allowed" : "pointer",
+      }}>
+        <option value="">{placeholder}</option>
+        {options.map((o) => <option key={o} value={o} style={{ color: "#000" }}>{o}</option>)}
+      </select>
+    </label>
+  );
+}
+function Meta({ icon: Icon, children, mono }: any) {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontFamily: mono ? "monospace" : "inherit" }}>
+      <Icon size={11} color={C.faint} /> {children}
+    </span>
+  );
+}
+function Pill({ children, color, icon: Icon, small }: any) {
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 4, padding: small ? "1px 6px" : "2px 8px",
+      borderRadius: 5, fontSize: small ? 9.5 : 10.5, fontWeight: 700, color, background: `${color}1A`, border: `1px solid ${color}40`,
+    }}>
+      {Icon && <Icon size={10} />} {children}
+    </span>
+  );
+}
+function KV({ icon: Icon, label, value, mono }: any) {
+  return (
+    <div>
+      <div style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10, letterSpacing: 0.5, textTransform: "uppercase", color: C.faint, marginBottom: 4 }}>
+        <Icon size={11} /> {label}
+      </div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: C.text, fontFamily: mono ? "monospace" : "inherit" }}>{value}</div>
+    </div>
   );
 }

@@ -2,16 +2,17 @@
 
 import { useState, useMemo } from 'react';
 import PageHeader from '@/components/PageHeader';
+import TopStatCard from '@/components/TopStatCard';
 import Link from 'next/link';
 import { suppliers } from '@/lib/data';
 import {
   getSupplierName, getContacts, getCompleteness, getRemindLogs,
-  supplierCompleteness, remindLogs,
+  supplierCompleteness, remindLogs, purchaseOrders, parts, factories,
 } from '@/lib/supplier-detail-data';
 import {
   Search, CheckCircle2, Clock, AlertTriangle, Send, Bell,
   ChevronRight, Mail, Phone, BarChart2, RefreshCw, AlertCircle,
-  XCircle,
+  XCircle, FileCheck, Factory,
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -26,29 +27,12 @@ function getSubmissionStatus(rate: number, missingCount: number): {
 }
 
 // ─── KPI 타일 ─────────────────────────────────────────────────
-function KpiTile({ label, value, unit, icon: Icon, tone, subLabel }: {
+function KpiTile({ label, value, unit, icon: Icon, tone, subLabel, onClick, active }: {
   label: string; value: number; unit?: string; icon: any;
   tone: 'ok' | 'warn' | 'critical' | 'neutral' | 'info'; subLabel?: string;
+  onClick?: () => void; active?: boolean;
 }) {
-  const toneColor = {
-    ok:       'text-emerald-400',
-    warn:     'text-amber-400',
-    critical: 'text-red-400',
-    neutral:  'text-ink-300',
-    info:     'text-blue-400',
-  }[tone];
-  return (
-    <div className="rounded-xs border border-ink-700/60 bg-ink-900/40 p-4">
-      <div className="flex items-center gap-2 mb-2">
-        <Icon className={clsx('w-3.5 h-3.5', toneColor)} />
-        <span className="text-[10px] uppercase tracking-wider text-ink-400 font-semibold">{label}</span>
-      </div>
-      <div className={clsx('text-2xl font-bold num-mono', toneColor)}>
-        {value}<span className="text-sm text-ink-400 ml-1">{unit}</span>
-      </div>
-      {subLabel && <div className="text-[10px] text-ink-500 mt-0.5">{subLabel}</div>}
-    </div>
-  );
+  return <TopStatCard label={label} value={value} unit={unit} tone={tone} active={active} onClick={onClick} />;
 }
 
 // ─── 리마인드 타입 메타 ───────────────────────────────────────
@@ -67,6 +51,29 @@ const remindStatusMeta: Record<string, { label: string; color: string }> = {
   completed:   { label: '완료',     color: 'text-emerald-400' },
   overdue:     { label: '기한 초과', color: 'text-red-400' },
 };
+
+function getPortalSubmissionSummary(supplierId: string) {
+  const submittedPOs = purchaseOrders.filter(po => po.supplierId === supplierId).slice(0, 3);
+  const linkedFactoryIds = new Set(submittedPOs.map(po => po.factoryId));
+  const submittedFactories = factories.filter(f => linkedFactoryIds.has(f.factoryId));
+
+  return {
+    submittedAt: '2026-05-14 13:42',
+    submittedBy: getContacts(supplierId).find(c => c.isPrimary) ?? getContacts(supplierId)[0],
+    submittedPOs,
+    submittedFactories,
+    materials: [
+      { name: '리튬', amount: '12.4 kg', recycled: '7%' },
+      { name: '코발트', amount: '8.2 kg', recycled: '18%' },
+      { name: '니켈', amount: '23.6 kg', recycled: '8%' },
+    ],
+    files: [
+      { name: 'invoice_240514_NCM811.pdf', type: '거래 인보이스', status: '유효' },
+      { name: 'origin_certificate_Co.pdf', type: '원산지 증명서', status: '유효' },
+      { name: 'carbon_emission_report.pdf', type: '탄소배출 보고서', status: '검증 중' },
+    ],
+  };
+}
 
 // ─── 협력사 행 ─────────────────────────────────────────────────
 function SupplierSubmissionRow({
@@ -203,6 +210,7 @@ function DetailPanel({ supplierId, onClose }: { supplierId: string; onClose: () 
   const contacts = getContacts(supplierId);
   const logs = getRemindLogs(supplierId);
   const primary = contacts.find(c => c.isPrimary) ?? contacts[0];
+  const portalSubmission = getPortalSubmissionSummary(supplierId);
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -274,6 +282,96 @@ function DetailPanel({ supplierId, onClose }: { supplierId: string; onClose: () 
             </div>
           </div>
         )}
+      </div>
+
+      {/* 포털 제출 내용 */}
+      <div className="p-5 border-b border-ink-700/60">
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-[10px] uppercase tracking-wider text-ink-400 font-semibold">포털 제출 내용</div>
+          <div className="text-[10px] text-ink-500 num-mono">{portalSubmission.submittedAt}</div>
+        </div>
+        <div className="rounded-xs border border-accent-700/30 bg-accent-500/5 p-3 mb-3">
+          <div className="flex items-center gap-2 text-[11px] text-ink-200">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+            협력사 포털 입력값이 원청사 확인 뷰에 반영됨
+          </div>
+          {portalSubmission.submittedBy && (
+            <div className="text-[10px] text-ink-500 mt-1">
+              제출 담당자: {portalSubmission.submittedBy.name} · {portalSubmission.submittedBy.email}
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <div className="text-[10px] text-ink-500 font-semibold mb-1.5">선택 PO</div>
+            <div className="space-y-1">
+              {portalSubmission.submittedPOs.length === 0 ? (
+                <div className="text-[11px] text-ink-500">제출된 PO가 없습니다</div>
+              ) : portalSubmission.submittedPOs.map(po => {
+                const part = parts.find(p => p.id === po.partId);
+                return (
+                  <div key={po.poId} className="flex items-center justify-between rounded-xs border border-ink-700/60 bg-ink-900/40 px-2.5 py-1.5">
+                    <div>
+                      <div className="text-[11px] font-semibold text-ink-100 num-mono">{po.poId}</div>
+                      <div className="text-[10px] text-ink-500">{part?.partName ?? po.partId}</div>
+                    </div>
+                    <div className="text-right text-[10px] text-ink-400 num-mono">
+                      {po.quantity.toLocaleString()} {po.unit}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <div className="text-[10px] text-ink-500 font-semibold mb-1.5">원자재 입력값</div>
+            <div className="grid grid-cols-3 gap-1.5">
+              {portalSubmission.materials.map(m => (
+                <div key={m.name} className="rounded-xs border border-ink-700/60 bg-ink-900/40 p-2">
+                  <div className="text-[10px] text-ink-400">{m.name}</div>
+                  <div className="text-xs text-ink-100 font-semibold num-mono">{m.amount}</div>
+                  <div className="text-[10px] text-emerald-500">재활용 {m.recycled}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="text-[10px] text-ink-500 font-semibold mb-1.5">공장별 제출 대상</div>
+            <div className="space-y-1">
+              {portalSubmission.submittedFactories.map(f => (
+                <div key={f.factoryId} className="flex items-center gap-2 rounded-xs border border-ink-700/60 bg-ink-900/40 px-2.5 py-1.5">
+                  <Factory className="w-3 h-3 text-ink-500" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] text-ink-100 truncate">{f.factoryName}</div>
+                    <div className="text-[10px] text-ink-500 truncate">{f.destinationDetail ?? f.address}</div>
+                  </div>
+                  {f.supplyRatioPercent !== undefined && (
+                    <span className="text-[10px] num-mono text-accent-500 font-semibold">{f.supplyRatioPercent}%</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="text-[10px] text-ink-500 font-semibold mb-1.5">첨부 서류</div>
+            <div className="space-y-1">
+              {portalSubmission.files.map(file => (
+                <div key={file.name} className="flex items-center gap-2 rounded-xs border border-ink-700/60 bg-ink-900/40 px-2.5 py-1.5">
+                  <FileCheck className="w-3 h-3 text-emerald-500" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] text-ink-100 truncate">{file.name}</div>
+                    <div className="text-[10px] text-ink-500">{file.type}</div>
+                  </div>
+                  <span className="text-[10px] text-emerald-500">{file.status}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* 담당자 */}
@@ -361,17 +459,21 @@ function DetailPanel({ supplierId, onClose }: { supplierId: string; onClose: () 
 // ─── 메인 ─────────────────────────────────────────────────────
 export default function SubmissionStatusPage() {
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'complete' | 'in_progress' | 'partial' | 'none'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'complete' | 'in_progress' | 'partial' | 'none' | 'overdue'>('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const allComps = supplierCompleteness;
 
   const filtered = useMemo(() => {
     let list = allComps;
+    const overdueSupplierIds = new Set(
+      remindLogs.filter(r => r.status === 'overdue').map(r => r.supplierId),
+    );
     if (statusFilter === 'complete')     list = list.filter(c => c.completionRate >= 100);
     if (statusFilter === 'in_progress')  list = list.filter(c => c.completionRate >= 80 && c.completionRate < 100);
     if (statusFilter === 'partial')      list = list.filter(c => c.completionRate >= 50 && c.completionRate < 80);
     if (statusFilter === 'none')         list = list.filter(c => c.completionRate < 50);
+    if (statusFilter === 'overdue')      list = list.filter(c => overdueSupplierIds.has(c.supplierId));
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(c => {
@@ -387,6 +489,16 @@ export default function SubmissionStatusPage() {
   const inProgressCount  = allComps.filter(c => c.completionRate >= 80 && c.completionRate < 100).length;
   const overdueRemindCount = remindLogs.filter(r => r.status === 'overdue').length;
   const totalMissing = allComps.reduce((s, c) => s + c.missingFields.length, 0);
+  const portalSubmissionRows = ['S-CAM-001', 'S-CELL-001'].map(supplierId => {
+    const name = getSupplierName(supplierId);
+    const summary = getPortalSubmissionSummary(supplierId);
+    return {
+      supplierId,
+      name: name?.nameEn ?? supplierId,
+      nameKo: name?.nameKo,
+      summary,
+    };
+  });
 
   return (
     <>
@@ -396,17 +508,66 @@ export default function SubmissionStatusPage() {
         badge="원청사"
       />
 
-      <div className={clsx('flex h-[calc(100vh-72px)]', selectedId ? 'divide-x divide-ink-700/60' : '')}>
+      <div className={clsx('flex h-[calc(100vh-72px)] overflow-hidden', selectedId ? 'divide-x divide-ink-700/60' : '')}>
         {/* 좌측 메인 */}
-        <div className={clsx('flex flex-col', selectedId ? 'w-[60%]' : 'w-full')}>
-          <div className="p-8 space-y-6 flex-1 overflow-y-auto">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="p-8 space-y-6 flex-1 overflow-auto">
             {/* KPI */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <KpiTile label="전체 평균 완성도" value={avgCompletion} unit="%" icon={BarChart2} tone="neutral" />
-              <KpiTile label="제출 완료" value={completeCount} unit="개사" icon={CheckCircle2} tone="ok" />
-              <KpiTile label="입력 진행 중" value={inProgressCount} unit="개사" icon={Clock} tone="info" />
-              <KpiTile label="리마인드 기한 초과" value={overdueRemindCount} unit="건" icon={AlertTriangle} tone="critical" />
+              <KpiTile label="전체 평균 완성도" value={avgCompletion} unit="%" icon={BarChart2} tone="neutral" onClick={() => setStatusFilter('all')} active={statusFilter === 'all'} />
+              <KpiTile label="제출 완료" value={completeCount} unit="개사" icon={CheckCircle2} tone="ok" onClick={() => setStatusFilter('complete')} active={statusFilter === 'complete'} />
+              <KpiTile label="입력 진행 중" value={inProgressCount} unit="개사" icon={Clock} tone="info" onClick={() => setStatusFilter('in_progress')} active={statusFilter === 'in_progress'} />
+              <KpiTile label="리마인드 기한 초과" value={overdueRemindCount} unit="건" icon={AlertTriangle} tone="critical" onClick={() => setStatusFilter('overdue')} active={statusFilter === 'overdue'} />
             </div>
+
+            {/* 포털 제출 내용 */}
+            <section className="rounded-xs border border-ink-700/60 bg-ink-900/30 overflow-x-auto">
+              <div className="min-w-[960px]">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-ink-700/60 bg-ink-900/50">
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-ink-500 font-semibold">포털 제출 내용</div>
+                  <div className="text-xs text-ink-300 mt-0.5">협력사 포털에서 작성된 입력값을 원청사가 검토하는 영역</div>
+                </div>
+                <div className="text-[10px] text-ink-500 num-mono">최근 제출 {portalSubmissionRows.length}건</div>
+              </div>
+
+              <div className="divide-y divide-ink-700/40">
+                {portalSubmissionRows.map(row => (
+                  <button
+                    key={row.supplierId}
+                    onClick={() => setSelectedId(row.supplierId)}
+                    className="w-full text-left grid grid-cols-[1.4fr_1fr_1.4fr_1fr_auto] gap-4 items-center px-4 py-3 hover:bg-ink-800/30 transition-colors"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold text-ink-100 truncate">{row.name}</div>
+                      {row.nameKo && <div className="text-[10px] text-ink-500 truncate">{row.nameKo}</div>}
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-ink-500">제출 PO</div>
+                      <div className="text-xs text-ink-200 num-mono">{row.summary.submittedPOs.map(po => po.poId).join(', ') || '—'}</div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10px] text-ink-500">공장</div>
+                      <div className="text-xs text-ink-200 truncate">
+                        {row.summary.submittedFactories.map(f => f.factoryName).join(' · ') || '—'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-ink-500">첨부 서류</div>
+                      <div className="flex items-center gap-1 text-xs text-emerald-500">
+                        <FileCheck className="w-3 h-3" />
+                        {row.summary.files.length}건
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 justify-end">
+                      <span className="text-[10px] text-ink-500 num-mono">{row.summary.submittedAt}</span>
+                      <ChevronRight className="w-3.5 h-3.5 text-ink-600" />
+                    </div>
+                  </button>
+                ))}
+              </div>
+              </div>
+            </section>
 
             {/* 필터 & 검색 */}
             <div className="flex flex-col sm:flex-row gap-3">
@@ -427,6 +588,7 @@ export default function SubmissionStatusPage() {
                   ['in_progress', '진행 중'],
                   ['partial', '부분'],
                   ['none', '미제출'],
+                  ['overdue', '기한 초과'],
                 ] as const).map(([v, l]) => (
                   <button
                     key={v}
@@ -445,7 +607,7 @@ export default function SubmissionStatusPage() {
             {/* 테이블 */}
             <div className="rounded-xs border border-ink-700/60 overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full">
+                <table className="w-full min-w-[1120px]">
                   <thead>
                     <tr className="border-b border-ink-700/60 bg-ink-900/60">
                       {['협력사', '완성도', '상태', '누락 항목', '담당자', '마지막 요청', '갱신일', ''].map((h, i) => (
@@ -484,7 +646,7 @@ export default function SubmissionStatusPage() {
 
         {/* 우측 상세 패널 */}
         {selectedId && (
-          <div className="w-[40%] shrink-0 overflow-y-auto">
+          <div className="w-[400px] shrink-0 overflow-y-auto">
             <DetailPanel supplierId={selectedId} onClose={() => setSelectedId(null)} />
           </div>
         )}
