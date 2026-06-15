@@ -16,6 +16,7 @@ import {
   AlertTriangle, 
 } from 'lucide-react';
 import Badge from '@/components/Badge';
+import { ViolationReportModalProps } from './ViolationReportModal';
 
 // ─── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -425,11 +426,21 @@ function Step3({
   files,
   requestItems,
   submitted,
+  showExitConfirm,
+  setShowExitConfirm,
+  onClose,
+  draftKey,
+  selected,
 }: {
   selectedItems: Set<string>;
   files: UploadedFile[];
   requestItems: RequestItem[];
   submitted: boolean;
+  showExitConfirm: boolean;
+  setShowExitConfirm: React.Dispatch<React.SetStateAction<boolean>>;
+  onClose: () => void;
+  draftKey: string;
+  selected: Set<string>;
 }) {
   if (submitted) {
     return (
@@ -800,6 +811,11 @@ export default function SubmitWizardModal({
               files={files}
               requestItems={requestItems}
               submitted={submitted}
+              showExitConfirm={showExitConfirm}
+              setShowExitConfirm={setShowExitConfirm}
+              onClose={onClose}
+              draftKey= {draftKey}
+              selected={selected}
             />
           )}
         </div>
