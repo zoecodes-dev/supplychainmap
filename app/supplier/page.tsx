@@ -27,13 +27,53 @@ import {
   ShieldCheck,
   Upload,
 } from 'lucide-react';
+
+// 1. 타입 정의를 import문 밖, 컴포넌트 상단에 독립적으로 배치합니다.
+interface Contact {
+  contactId: string;
+  name: string;
+  jobTitle?: string;
+  department?: string;
+  email?: string;
+  phone?: string;
+  isPrimary?: boolean;
+}
+
+interface Factory {
+  factoryId: string; 
+  factoryName: string; 
+  factoryNameEn?: string; 
+  destination?: 'US' | 'EU' | 'KR' | 'BOTH'; 
+  address?: string; 
+  operatingPeriodFrom?: string; 
+  operatingPeriodTo?: string; 
+  establishedAt?: string;
+  capacity?: string;
+  destinationDetail?: string;
+  applicableRegulations?: string[];
+}
+
+// 2. 상수 매핑을 정의합니다.
+
 import Badge from '@/components/Badge';
 import Card from '@/components/Card';
-import KpiCard from '@/components/KpiCard';
-import SubmitWizardModal from '@/components/supplier/SubmitWizardModal';
+const STATUS_TONE_MAP: Record<string, 'ok' | 'alert' | 'neutral'> = {
+  verified: 'ok',
+  supplier_verified: 'ok',
+  suspended: 'alert',
+  rejected: 'alert',
+  pending: 'neutral',
+  review: 'neutral'
+};
+const DESTINATION_TONE_MAP: Record<string, 'warn' | 'ok' | 'info'> = {
+  US: 'warn',
+  EU: 'ok',
+  KR: 'info',
+};
 import EightStageStepper from '@/components/supplier/EightStageStepper';
 import SupplyChainMap from '@/components/supplier/SupplyChainMap';
 import ViolationReportModal from '@/components/supplier/ViolationReportModal';
+import SubmitWizardModal from '@/components/supplier/SubmitWizardModal';
 import SelfReportModal from '@/components/supplier/SelfReportModal';
 import AuditView from '@/components/supplier/AuditView';
 import SupplierNotificationBell from '@/components/supplier/SupplierNotificationBell';
@@ -50,6 +90,7 @@ import {
   purchaseOrders,
   regulationMeta,
 } from '@/lib/supplier-detail-data';
+type SupplierStatus = 'verified' | 'suspended' | 'rejected' | 'supplier_verified' | 'pending' | 'review';
 
 const supplierId = 'S-MINE-001';
 
@@ -697,12 +738,7 @@ export default function SupplierPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   {supplier && (
-                    <Badge
-                      tone={
-                        supplier.status === 'supplier_verified' || supplier.status === 'verified' ? 'ok' :
-                        supplier.status === 'suspended' || supplier.status === 'rejected' ? 'alert' : 'neutral'
-                      }
-                    >
+                    <Badge tone={STATUS_TONE_MAP[supplier.status] || 'neutral'}>
                       {supplierStatusMeta[supplier.status]?.label ?? supplier.status}
                     </Badge>
                   )}
@@ -745,7 +781,7 @@ export default function SupplierPage() {
             <div className="divide-y divide-ink-800 px-6">
               {contacts.length === 0 ? (
                 <div className="py-8 text-center text-xs text-ink-500">등록된 담당자가 없습니다.</div>
-              ) : contacts.map(contact => (
+              ) : contacts.map((contact: Contact) => (
                 <div key={contact.contactId} className="flex items-start justify-between gap-4 py-4">
                   <div className="flex items-start gap-3">
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-50 text-sm font-bold text-accent-700">
@@ -797,21 +833,16 @@ export default function SupplierPage() {
             <div className="divide-y divide-ink-800 px-6">
               {factories.length === 0 ? (
                 <div className="py-8 text-center text-xs text-ink-500">등록된 사업장이 없습니다.</div>
-              ) : factories.map(factory => (
+              ) : factories.map((factory: Factory) => (
                 <div key={factory.factoryId} className="py-5">
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <div className="text-xs font-bold text-ink-100">{factory.factoryName}</div>
                       <div className="mt-0.5 text-[10px] text-ink-500">{factory.factoryNameEn ?? factory.factoryName}</div>
                     </div>
-                    <Badge
-                      tone={
-                        factory.destination === 'US' ? 'warn' :
-                        factory.destination === 'EU' ? 'ok' : 'info'
-                      }
-                    >
+                    <Badge tone={DESTINATION_TONE_MAP[factory.destination ?? ''] || 'info'}>
                       {factory.destination ?? 'KR'}
-                    </Badge>
+                    </Badge>  
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-3 text-[11px]">
                     {factory.address && (
