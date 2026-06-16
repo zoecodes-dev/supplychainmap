@@ -20,7 +20,6 @@ import {
   Users,
 } from 'lucide-react';
 import Badge from '@/components/Badge';
-import AuditRegisterModal, { AuditFormData } from './AuditRegisterModal';
 import clsx from 'clsx';
 
 // ─── 타입 ──────────────────────────────────────────────────────────────────────
@@ -244,6 +243,25 @@ function AuditDetailPanel({ record }: { record: AuditRecord }) {
           </div>
           <ApprovalTimeline steps={record.approvalSteps} />
         </div>
+
+        {/* ── [CAPA] 시정 조치 과제 영역 ── */}
+        <div className="border-t border-ink-700 bg-ink-800 px-5 py-4">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700">시정 조치 과제 (CAPA)</span>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <div className="rounded-xs border border-ink-700 bg-white p-3 text-[11px]">
+              <div className="font-bold text-ink-100">고충 처리 절차 공개 미흡</div>
+              <div className="mt-1 text-ink-500">기한: 2026-06-30</div>
+              <button className="mt-2 w-full rounded-xs border border-accent-600 px-2 py-1 text-accent-700 font-bold hover:bg-accent-50 transition-colors">
+                개선 완료 보고서 업로드
+              </button>
+            </div>
+          </div>
+        </div>        
       </div>
 
       {/* 하단 액션 */}
@@ -278,7 +296,6 @@ export default function AuditView({ supplierId }: { supplierId: string }) {
   const [selectedId, setSelectedId]     = useState<string>(MOCK_AUDITS[0].id);
   const [filterMethod, setFilterMethod] = useState<AuditMethod | 'all'>('all');
   const [filterApproval, setFilterApproval] = useState<ApprovalStatus | 'all'>('all');
-  const [modalOpen, setModalOpen]       = useState(false);
 
   // 필터 적용
   const filtered = records.filter(r => {
@@ -288,31 +305,6 @@ export default function AuditView({ supplierId }: { supplierId: string }) {
   });
 
   const selected = records.find(r => r.id === selectedId) ?? records[0];
-
-  // 신규 등록 처리
-  function handleRegister(data: AuditFormData) {
-    const newRecord: AuditRecord = {
-      id: `audit-${Date.now()}`,
-      period: data.period,
-      dateFrom: data.dateFrom,
-      dateTo: data.dateTo || undefined,
-      method: data.method,
-      targetCompany: data.targetCompany,
-      accompanied: data.accompanied,
-      auditContent: data.auditContent,
-      educationContent: data.educationContent || undefined,
-      recordedBy: '내 담당자',
-      recordedAt: new Date().toISOString().split('T')[0],
-      approvalStatus: 'pending',
-      approvalSteps: [
-        { name: '내 담당자', role: 'ESG팀 담당', status: 'done', date: new Date().toISOString().split('T')[0], comment: '기록 작성 완료' },
-        { name: '이팀장', role: 'ESG팀 팀장', status: 'pending' },
-        { name: '박본부장', role: 'ESG본부장', status: 'waiting' },
-      ],
-    };
-    setRecords(prev => [newRecord, ...prev]);
-    setSelectedId(newRecord.id);
-  }
 
   return (
     <>
@@ -324,14 +316,6 @@ export default function AuditView({ supplierId }: { supplierId: string }) {
             <h2 className="text-sm font-bold text-ink-100">실사 관리</h2>
             <p className="mt-1 text-xs text-ink-500">현장 실사 이력 조회 및 담당자 승인 · v3 Ⓔ 실사·교육</p>
           </div>
-          <button
-            type="button"
-            onClick={() => setModalOpen(true)}
-            className="inline-flex shrink-0 items-center gap-2 rounded-xs bg-accent-700 px-4 py-2 text-xs font-bold text-white shadow-control hover:bg-accent-900 transition-colors"
-          >
-            <ClipboardCheck className="h-3.5 w-3.5" />
-            신규 실사 등록
-          </button>
         </div>
 
         {/* ── 필터 바 ── */}
@@ -433,16 +417,6 @@ export default function AuditView({ supplierId }: { supplierId: string }) {
           {selected && <AuditDetailPanel record={selected} />}
         </div>
       </div>
-
-      {/* 신규 실사 등록 모달 */}
-      <AuditRegisterModal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        onSubmit={(data) => {
-          handleRegister(data);
-          setModalOpen(false);
-        }}
-      />
-    </>
-  );
+      </>
+  );      
 }
